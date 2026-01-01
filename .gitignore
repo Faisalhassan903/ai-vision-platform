@@ -1,0 +1,18 @@
+# Virtual Environments (The main culprit)
+**/venv/
+**/.venv/
+ai-service/.venv/
+
+# Binaries & Large Files
+*.dll
+*.lib
+*.exe
+*.pt
+*.weights
+*.h5
+
+# Dependencies
+**/node_modules/
+
+# Environment
+**/.env

@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+/* 1. Manually link your config so v4 can see your custom colors */
+@config "../tailwind.config.js"; 
+
+@layer base {
+  body {
+    /* 2. Use the custom color you defined in tailwind.config.js */
+    @apply bg-dark-bg text-white antialiased;
+    margin: 0;
+    min-height: 100vh;
+  }
+}
+/* Flash animation for critical alerts */
+@keyframes flash {
+  0%, 100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes flash {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
