@@ -9,6 +9,11 @@ import AlertRules from './pages/AlertRules';
 import  StoreTest from './pages/StoreTest';
 import CameraMonitoring from'./pages/CameraMonitoring';
 
+import CameraManagement from './pages/CameraManagement';
+import MultiCameraView from './pages/MultiCameraView';
+
+
+
 // In routes:
 
 function App() {
@@ -28,6 +33,8 @@ function App() {
             <Route path="/rules" element={<AlertRules />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/monitor" element={<CameraMonitoring />} />
+            <Route path="/cameras" element={<CameraManagement />} />
+            <Route path="/grid" element={<MultiCameraView />} /> 
 
           
                          

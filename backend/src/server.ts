@@ -10,6 +10,8 @@ import analyticsRoutes from './routes/analyticsRoutes';
 import alertRoutes from './routes/alertRoutes';
 import connectDB from './config/database';
 import { setupLiveRoutes } from './routes/liveRoutes';
+import cameraRoutes from './routes/cameraRoutes';
+import { rtspProxy } from './services/rtspProxy';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -22,7 +24,7 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST']
   }
 });
-
+rtspProxy.initialize(io);
 setupLiveRoutes(io);
 
 app.use(cors());
@@ -43,6 +45,7 @@ app.get('/', (req: Request, res: Response) => {
 app.use('/api/vision', visionRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/cameras', cameraRoutes);
 
 // Start server and THEN initialize bot
 httpServer.listen(PORT, async () => {

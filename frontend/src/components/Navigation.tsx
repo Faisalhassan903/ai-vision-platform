@@ -16,6 +16,8 @@ function Navigation() {
     { path: '/rules', label: 'Security Rules', icon: '🛡️' },
     { path: '/analytics', label: 'Analytics', icon: '📊' },
     { path: '/monitor', label:'CameraMonitoring' ,icon:'📹'},
+    { name: 'CAMERAS', path: '/cameras', icon: '📹' },
+    { name: 'GRID VIEW', path: '/grid', icon: '⊞' } ,
     
 
     

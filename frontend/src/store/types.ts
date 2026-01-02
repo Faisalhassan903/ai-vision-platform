@@ -87,18 +87,61 @@ export interface DetectionResult {
 // -------------------------------------------
 
 /**
- * Camera configuration
+ * Camera source types
+ */
+export type CameraType = 'webcam' | 'rtsp' | 'http' | 'file';
+
+/**
+ * Camera connection status
+ */
+export type CameraStatus = 'online' | 'offline' | 'connecting' | 'error';
+
+/**
+ * Camera configuration - Universal support for any camera type
  */
 export interface Camera {
-  id: string;              // Unique camera ID
-  name: string;            // Display name (e.g., "Front Door", "Parking Lot")
-  streamUrl?: string;      // RTSP/HTTP stream URL (for IP cameras)
-  type: 'webcam' | 'ip' | 'file';  // Camera source type
-  enabled: boolean;        // Is camera active?
+  id: string;                    // Unique camera ID (auto-generated)
+  name: string;                  // Display name (e.g., "Front Door", "Parking Lot")
+  type: CameraType;              // Camera source type
+  
+  // Connection settings
+  streamUrl?: string;            // RTSP/HTTP stream URL (for IP cameras)
+  username?: string;             // Auth username (for secured streams)
+  password?: string;             // Auth password (for secured streams)
+  deviceId?: string;             // WebRTC device ID (for webcams)
+  filePath?: string;             // Local file path (for video files)
+  
+  // Stream settings
+  fps?: number;                  // Target FPS for processing (default: 5)
+  resolution?: {                 // Target resolution
+    width: number;
+    height: number;
+  };
+  
+  // Location & Organization
+  location?: string;             // Physical location (e.g., "Building A, Floor 2")
+  group?: string;                // Camera group (e.g., "Entrance", "Warehouse")
   
   // Status (updated in real-time)
-  isConnected: boolean;
-  lastSeen?: number;       // Last frame timestamp
+  enabled: boolean;              // Is camera active?
+  status: CameraStatus;          // Current connection status
+  lastSeen?: number;             // Last frame timestamp
+  errorMessage?: string;         // Last error message
+  
+  // Metadata
+  createdAt: number;             // When camera was added
+  updatedAt?: number;            // Last configuration update
+}
+
+/**
+ * Camera presets for common brands
+ */
+export interface CameraPreset {
+  brand: string;
+  model: string;
+  rtspTemplate: string;          // e.g., "rtsp://{ip}:{port}/stream1"
+  defaultPort: number;
+  instructions: string;
 }
 
 /**
