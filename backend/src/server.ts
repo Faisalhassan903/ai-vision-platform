@@ -14,7 +14,7 @@ import { setupLiveRoutes } from './routes/liveRoutes';
 // The Troubleshooting Import
 // If this still fails, try renaming the actual file to 'cam-routes.ts' 
 // and updating the string below to match.
-import cameraRoutes from './routes/cameraRoutes'; 
+import cameraRoutes from "./routes/cameraRoutes";
 
 // Services
 import connectDB from './config/database';

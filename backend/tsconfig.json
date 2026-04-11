@@ -2,15 +2,13 @@
   "compilerOptions": {
     "target": "ES6",
     "module": "CommonJS",
-    "moduleResolution": "node", // <--- ADD THIS LINE
     "outDir": "./dist",
     "rootDir": "./src",
-    "strict": false,
-    "noImplicitAny": false,
+    "strict": false,               // Change this to false
+    "noImplicitAny": false,        // Add this line
     "skipLibCheck": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true // <--- ADD THIS TOO
+    "esModuleInterop": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"] // <--- Keep it simple
+  "exclude": ["node_modules", "../frontend"]
 }
