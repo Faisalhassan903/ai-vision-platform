@@ -10,9 +10,9 @@ import analyticsRoutes from './routes/analyticsRoutes';
 import alertRoutes from './routes/alertRoutes';
 import connectDB from './config/database';
 import { setupLiveRoutes } from './routes/liveRoutes';
-import cameraRoutes from './routes/cameraRoutes';
+import cameraRoutes from './routes/cameraRoutes'
 import { rtspProxy } from './services/rtspProxy';
-import authRoutes from './routes/authRoutes';
+import authRoutes from './routes/authRoutes'; 
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -21,7 +21,7 @@ const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: 'http://localhost:5173',
     methods: ['GET', 'POST']
   }
 });
@@ -40,23 +40,18 @@ app.use('/api/vision', visionRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/cameras', cameraRoutes);
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authRoutes); // ADD
 
 httpServer.listen(PORT, async () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
-  
   await connectDB();
 
-  // Wait 5s on Render to let old instance fully shut down
-  const delay = process.env.RENDER ? 5000 : 2000;
-  
-  setTimeout(async () => {
+  setTimeout(() => {
     try {
       const { IntelligentTelegramBot } = require('./services/IntelligentTelegramBot');
-      await IntelligentTelegramBot.initialize();
+      IntelligentTelegramBot.initialize();
     } catch (error: any) {
       console.error('❌ Telegram Bot failed:', error.message);
-      console.log('⚠️ Server continues without Telegram bot');
     }
-  }, delay);
+  }, 2000);
 });
