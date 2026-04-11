@@ -10,7 +10,7 @@ import analyticsRoutes from './routes/analyticsRoutes';
 import alertRoutes from './routes/alertRoutes';
 import connectDB from './config/database';
 import { setupLiveRoutes } from './routes/liveRoutes';
-import cameraRoutes from './routes/cameraRoutes'
+import cameraRoutes from './routes/cameraRoutes';
 import { rtspProxy } from './services/rtspProxy';
 import authRoutes from './routes/authRoutes'; 
 
@@ -33,7 +33,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/', (req: Request, res: Response) => {
-  res.json({ message: 'AI Vision Platform Backend is running! 🚀' });
+  res.json({ message: 'AI Vision Platform Backend is running! ' });
 });
 
 app.use('/api/vision', visionRoutes);
