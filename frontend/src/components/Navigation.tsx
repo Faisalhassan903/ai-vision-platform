@@ -1,27 +1,22 @@
 import { Link, useLocation } from 'react-router-dom';
-import { useAlerts } from '../hooks/useAlerts'; // Hook we built earlier
+import { useAlerts } from '../hooks/useAlerts';
 
 function Navigation() {
   const location = useLocation();
   const { alerts } = useAlerts();
   
-  // Check if there are unread/new alerts to show a red dot
   const hasNewAlerts = alerts.some(a => a.status === 'new');
-
   const isActive = (path: string) => location.pathname === path;
 
+  // Standardized keys to use 'label' consistently
   const navItems = [
     { path: '/live', label: 'Camera', icon: '📹' },
     { path: '/alerts', label: 'Incidents', icon: '🚨', badge: hasNewAlerts },
-    { path: '/rules', label: 'Security Rules', icon: '🛡️' },
+    { path: '/rules', label: 'Security', icon: '🛡️' },
     { path: '/analytics', label: 'Analytics', icon: '📊' },
-    { path: '/monitor', label:'CameraMonitoring' ,icon:'📹'},
-    { name: 'CAMERAS', path: '/cameras', icon: '📹' },
-    { name: 'GRID VIEW', path: '/grid', icon: '⊞' } ,
-    
-
-    
-    
+    { path: '/monitor', label: 'Monitoring', icon: '🖥️' },
+    { path: '/cameras', label: 'Cameras', icon: '🎥' },
+    { path: '/grid', label: 'Grid View', icon: '⊞' },
   ];
 
   return (
@@ -39,12 +34,12 @@ function Navigation() {
           </div>
 
           {/* Navigation Links */}
-          <div className="flex gap-1">
+          <div className="flex items-center gap-1">
             {navItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
-                className={`relative px-4 py-2 rounded-md text-xs font-bold uppercase tracking-widest transition-all flex items-center ${
+                className={`relative px-4 py-2 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all flex items-center ${
                   isActive(item.path)
                     ? 'bg-blue-600 text-white'
                     : 'text-zinc-500 hover:text-white hover:bg-zinc-900'
@@ -53,7 +48,6 @@ function Navigation() {
                 <span className="mr-2 text-base">{item.icon}</span>
                 {item.label}
 
-                {/* Live Alert Notification Dot */}
                 {item.badge && (
                   <span className="absolute -top-1 -right-1 flex h-3 w-3">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -62,6 +56,14 @@ function Navigation() {
                 )}
               </Link>
             ))}
+
+            {/* Telegram Link - Moved outside the map but inside the flex container */}
+            <Link 
+              to="/telegram" 
+              className="ml-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-blue-400 hover:text-blue-300 flex items-center border border-blue-900/30 rounded-md bg-blue-600/5"
+            >
+              <span className="mr-2">🔔</span> Telegram
+            </Link>
           </div>
 
         </div>

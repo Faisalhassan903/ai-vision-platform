@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-dotenv.config(); // Load .env FIRST!
+dotenv.config();
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
@@ -12,6 +12,7 @@ import connectDB from './config/database';
 import { setupLiveRoutes } from './routes/liveRoutes';
 import cameraRoutes from './routes/cameraRoutes';
 import { rtspProxy } from './services/rtspProxy';
+import authRoutes from './routes/authRoutes'; 
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -24,6 +25,7 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST']
   }
 });
+
 rtspProxy.initialize(io);
 setupLiveRoutes(io);
 
@@ -31,39 +33,25 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/', (req: Request, res: Response) => {
-  res.json({ 
-    message: 'AI Vision Platform Backend is running! 🚀',
-    endpoints: {
-      vision: '/api/vision',
-      analytics: '/api/analytics',
-      alerts: '/api/alerts',
-      socket: 'Socket.io enabled'
-    }
-  });
+  res.json({ message: 'AI Vision Platform Backend is running! 🚀' });
 });
 
 app.use('/api/vision', visionRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/cameras', cameraRoutes);
+app.use('/api/auth', authRoutes); // ADD
 
-// Start server and THEN initialize bot
 httpServer.listen(PORT, async () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
-  console.log(`🔌 Socket.io ready for connections`);
-  
-  // Connect to database first
   await connectDB();
-  
-  // THEN initialize Telegram bot (after 2 seconds to be safe)
+
   setTimeout(() => {
     try {
-      console.log('🤖 Initializing Telegram Bot...');
       const { IntelligentTelegramBot } = require('./services/IntelligentTelegramBot');
       IntelligentTelegramBot.initialize();
     } catch (error: any) {
-      console.error('❌ Telegram Bot initialization failed:', error.message);
-      console.log('⚠️ System will continue without Telegram bot');
+      console.error('❌ Telegram Bot failed:', error.message);
     }
   }, 2000);
 });

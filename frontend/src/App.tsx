@@ -11,7 +11,7 @@ import CameraMonitoring from'./pages/CameraMonitoring';
 
 import CameraManagement from './pages/CameraManagement';
 import MultiCameraView from './pages/MultiCameraView';
-
+import TelegramConnect from './pages/TelegramConnect'; // ADD
 
 
 // In routes:
@@ -35,6 +35,7 @@ function App() {
             <Route path="/monitor" element={<CameraMonitoring />} />
             <Route path="/cameras" element={<CameraManagement />} />
             <Route path="/grid" element={<MultiCameraView />} /> 
+            <Route path="/telegram" element={<TelegramConnect />} />
 
           
                          

@@ -1,0 +1,89 @@
+# ================================
+# SENTRY AI - DOCKER COMPOSE
+# ================================
+# Run: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # ----------------------
+  # FRONTEND (React)
+  # ----------------------
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - sentry-network
+
+  # ----------------------
+  # BACKEND (Node.js)
+  # ----------------------
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - MONGODB_URI=mongodb://mongo:27017/sentry_ai
+      - AI_SERVICE_URL=http://ai-service:5001
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - TELEGRAM_ENABLED=${TELEGRAM_ENABLED:-true}
+    depends_on:
+      - mongo
+      - ai-service
+    restart: unless-stopped
+    networks:
+      - sentry-network
+
+  # ----------------------
+  # AI SERVICE (Python)
+  # ----------------------
+  ai-service:
+    build: ./ai-service
+    ports:
+      - "5001:5001"
+    environment:
+      - FLASK_ENV=production
+    restart: unless-stopped
+    networks:
+      - sentry-network
+    # GPU support (uncomment if you have NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ----------------------
+  # DATABASE (MongoDB)
+  # ----------------------
+  mongo:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+    networks:
+      - sentry-network
+
+# ----------------------
+# VOLUMES (Data persistence)
+# ----------------------
+volumes:
+  mongo-data:
+
+# ----------------------
+# NETWORK
+# ----------------------
+networks:
+  sentry-network:
+    driver: bridge
