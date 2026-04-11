@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import Detection from '../models/Detection';
+import Detection from './models/Detection';
 
 const testDB = async () => {
   try {
