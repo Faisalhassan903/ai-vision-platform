@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: ai-vision-platform
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npx tsc
+    startCommand: node dist/server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 18.20.0
