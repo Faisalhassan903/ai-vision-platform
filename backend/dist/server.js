@@ -40,7 +40,7 @@ rtspProxy_1.rtspProxy.initialize(io);
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
 app.get('/', (req, res) => {
-    res.json({ message: 'AI Vision Platform Backend is running! 🚀' });
+    res.json({ message: 'AI Vision Platform Backend is running! ' });
 });
 app.use('/api/vision', visionRoutes_1.default);
 app.use('/api/analytics', analyticsRoutes_1.default);
