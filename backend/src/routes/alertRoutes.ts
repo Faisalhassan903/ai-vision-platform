@@ -15,6 +15,7 @@ router.get('/', async (req: Request, res: Response) => {
     
     if (priority) {
       query.priority = priority;
+      
     }
     
     if (acknowledged !== undefined) {
