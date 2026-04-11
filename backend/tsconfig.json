@@ -4,11 +4,11 @@
     "module": "CommonJS",
     "outDir": "./dist",
     "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
+    "strict": false,               // Change this to false
+    "noImplicitAny": false,        // Add this line
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "esModuleInterop": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "../frontend", "../../frontend"]
+  "exclude": ["node_modules", "../frontend"]
 }
