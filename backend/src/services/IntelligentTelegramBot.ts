@@ -5,20 +5,44 @@ import AlertRule from '../models/AlertRule';
 import User from '../models/User';
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
-const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+
+// Create bot WITHOUT polling — we start it manually in initialize()
+const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
 export class IntelligentTelegramBot {
   
+  private static initialized = false; // prevent double init
   private static userSessions = new Map<number, any>();
   
-  static initialize() {
+  static async initialize() {
+    // Prevent running twice
+    if (this.initialized) {
+      console.log('⚠️ Bot already initialized, skipping');
+      return;
+    }
+
     console.log('🤖 Intelligent Telegram Bot starting...');
-    
-    // /start WITH token — links account
+
+    try {
+      // Delete webhook first — clears any conflicts
+      await bot.deleteWebHook();
+      console.log('✅ Webhook cleared');
+
+      // Stop any existing polling
+      await bot.stopPolling();
+
+      // Wait a moment then start fresh
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await bot.startPolling();
+      console.log('✅ Polling started');
+
+    } catch (err) {
+      console.log('⚠️ Polling reset error (non-fatal):', err);
+    }
+
+    // Register handlers
     bot.onText(/\/start (.+)/, (msg, match) => this.handleStartWithToken(msg, match));
-    // /start alone
     bot.onText(/\/start$/, (msg) => this.handleStart(msg));
-    
     bot.onText(/\/status/, (msg) => this.handleStatus(msg));
     bot.onText(/\/cameras/, (msg) => this.handleCameras(msg));
     bot.onText(/\/alerts/, (msg) => this.handleAlerts(msg));
@@ -29,9 +53,21 @@ export class IntelligentTelegramBot {
     bot.onText(/\/stats/, (msg) => this.handleStats(msg));
     bot.onText(/\/help/, (msg) => this.handleHelp(msg));
     bot.on('callback_query', (query) => this.handleCallback(query));
-    
+
+    // Suppress polling error noise
+    bot.on('polling_error', (error: any) => {
+      if (error?.code === 'ETELEGRAM' && error?.message?.includes('409')) {
+        console.log('⚠️ Telegram 409 — another instance still shutting down, retrying...');
+      } else {
+        console.error('❌ Polling error:', error?.message);
+      }
+    });
+
+    this.initialized = true;
     console.log('✅ Intelligent Bot ready!');
   }
+
+  // ... rest of your file stays exactly the same
 
   // NEW: Link Telegram to user account via token
   private static async handleStartWithToken(
