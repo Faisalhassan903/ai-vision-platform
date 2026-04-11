@@ -10,7 +10,7 @@ import analyticsRoutes from './routes/analyticsRoutes';
 import alertRoutes from './routes/alertRoutes';
 import connectDB from './config/database';
 import { setupLiveRoutes } from './routes/liveRoutes';
-import cameraRoutes from './routes/cameraRoutes';
+import cameraRoutes from './routes/Cameraroutes'
 import { rtspProxy } from './services/rtspProxy';
 import authRoutes from './routes/authRoutes'; 
 
