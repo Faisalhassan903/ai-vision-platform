@@ -1,6 +1,7 @@
-Flask==3.0.0
-Flask-CORS==4.0.0
-torch==2.1.2
-torchvision==0.16.2
-Pillow==10.1.0
-numpy==1.26.2
+flask==3.0.0
+flask-cors==4.0.0
+ultralytics==8.1.0
+torch==2.1.2 --index-url https://download.pytorch.org/whl/cpu
+torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cpu
+opencv-python-headless
+gunicorn

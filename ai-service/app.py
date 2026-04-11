@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 from torchvision.models import resnet50, ResNet50_Weights
 import io
 import json
+import os # Added for port handling
 
 from ultralytics import YOLO
 import cv2
@@ -25,9 +26,10 @@ model.eval()
 print("✅ Model loaded successfully!")
 
 # Load YOLO model for object detection
-print("🔄 Loading YOLOv8 model...")
-yolo_model = YOLO('yolov8s.pt')
-print("✅ YOLOv8 model loaded successfully!")
+# CHANGED: Switched from yolov8s.pt to yolov8n.pt for better performance on cloud hosting
+print("🔄 Loading YOLOv8 Nano model...")
+yolo_model = YOLO('yolov8n.pt') 
+print("✅ YOLOv8n model loaded successfully!")
 
 # Thread lock to prevent concurrent processing
 processing_lock = Lock()
@@ -54,7 +56,7 @@ def health_check():
         'status': 'running',
         'message': 'AI Vision Service is ready! 🧠',
         'model': 'YOLOv8n + ResNet50',
-        'python_version': '3.14',
+        'python_version': '3.x',
         'classes': len(class_labels)
     })
 
@@ -161,9 +163,7 @@ def detect_objects():
         detections.sort(key=lambda x: x['confidence'], reverse=True)
         
         _, buffer = cv2.imencode('.jpg', img_with_boxes)
-        img_base64 = buffer.tobytes()
-        import base64
-        img_base64_str = base64.b64encode(img_base64).decode('utf-8')
+        img_base64_str = base64.b64encode(buffer).decode('utf-8')
         
         return jsonify({
             'success': True,
@@ -178,12 +178,11 @@ def detect_objects():
             'error': str(e)
         }), 500
 
-# LIVE STREAM ENDPOINT (FIXED & OPTIMIZED!)
+# LIVE STREAM ENDPOINT
 @app.route('/detect-live', methods=['POST'])
 def detect_live():
     global is_processing
     
-    # Skip if already processing a frame
     if not processing_lock.acquire(blocking=False):
         return jsonify({
             'success': True,
@@ -198,22 +197,19 @@ def detect_live():
         file = request.files['image']
         img_bytes = file.read()
         
-        # Decode image
         nparr = np.frombuffer(img_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         if img is None:
             return jsonify({'error': 'Failed to decode image'}), 400
         
-        # Get original dimensions
         original_height, original_width = img.shape[:2]
         
-        # Run YOLO detection on ORIGINAL size (better accuracy!)
         results = yolo_model(
             img,
-            conf=0.25,      # Lower confidence for more detections
-            iou=0.45,       
-            max_det=20,     # Allow more detections
+            conf=0.25,
+            iou=0.45,
+            max_det=20,
             verbose=False
         )
         
@@ -221,14 +217,11 @@ def detect_live():
         for result in results:
             boxes = result.boxes
             for box in boxes:
-                # Get coordinates in ORIGINAL image size
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
-                
                 class_id = int(box.cls[0])
                 confidence = float(box.conf[0])
                 class_name = yolo_model.names[class_id]
                 
-                # Scale to 416x416 (what frontend expects)
                 scale_x = 416 / original_width
                 scale_y = 416 / original_height
                 
@@ -247,13 +240,6 @@ def detect_live():
                 })
         
         detections.sort(key=lambda x: x['confidence'], reverse=True)
-        
-        if len(detections) > 0:
-            detected_objects = ', '.join([f"{d['class']}({int(d['confidence']*100)}%)" for d in detections])
-            print(f"✅ Detected: {detected_objects}")
-        else:
-            print(f"✅ Processed frame - found 0 objects")
-        
         return jsonify({
             'success': True,
             'detections': detections,
@@ -261,7 +247,6 @@ def detect_live():
         })
         
     except Exception as e:
-        print(f"❌ Live detection error: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -271,9 +256,7 @@ def detect_live():
 
 # Start server
 if __name__ == '__main__':
-    print("🚀 Starting AI Vision Service on http://localhost:5001")
-    print("📊 Detection Settings:")
-    print("   - Confidence threshold: 25%")
-    print("   - Max detections: 20")
-    print("   - Image size: Original (no resize)")
-    app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)
+    # CHANGED: Added dynamic port for Render/Railway deployment
+    port = int(os.environ.get("PORT", 5001))
+    print(f"🚀 Starting AI Vision Service on port {port}")
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
