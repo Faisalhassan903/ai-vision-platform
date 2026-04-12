@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit # Add these
+from flask_socketio import SocketIO, emit
+import os  # <--- ADD THIS LINE
 import base64
 import cv2
 import numpy as np
