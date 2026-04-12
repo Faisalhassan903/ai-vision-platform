@@ -5,19 +5,15 @@ import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import { Card, Button, StatCard, Badge } from '../components/ui';
 import { AI_SERVICE_URL } from '../config';
 
-interface Detection {
-  class: string;
-  score: number; // TensorFlow uses 'score' instead of 'confidence'
-  bbox: [number, number, number, number]; // [x, y, width, height]
-}
-
 const LiveCamera = () => {
+  // Refs for persistent objects
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const socketRef = useRef<Socket | null>(null);
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
+  // UI State
   const [isStreaming, setIsStreaming] = useState(false);
   const [detections, setDetections] = useState<any[]>([]);
   const [fps, setFps] = useState(0);
@@ -28,10 +24,32 @@ const LiveCamera = () => {
     return () => stopCamera();
   }, []);
 
+  const connectSocket = () => {
+    // We use polling first because Render Free Tier often fails direct WebSocket handshakes
+    socketRef.current = io(AI_SERVICE_URL, {
+      transports: ['polling', 'websocket'],
+      reconnectionAttempts: 10,
+      timeout: 20000, 
+    });
+
+    socketRef.current.on('connect', () => {
+      console.log('✅ Connected to Hub via:', socketRef.current?.io.engine.transport.name);
+      setStatus('online');
+      setIsStreaming(true);
+      runDetectionLoop();
+    });
+
+    socketRef.current.on('connect_error', (err) => {
+      console.error('❌ Socket Error:', err.message);
+      setStatus('error');
+    });
+  };
+
   const startCamera = async () => {
     try {
       setStatus('loading_ai');
-      // 1. Initialize TensorFlow Backend and Load Model
+      
+      // Load AI Model into Browser Memory
       await tf.ready();
       modelRef.current = await cocoSsd.load();
       
@@ -52,37 +70,24 @@ const LiveCamera = () => {
         };
       }
     } catch (err: any) {
-      console.error('❌ Initialization Failed:', err);
+      console.error('❌ Hardware Access Denied:', err);
       setStatus('error');
     }
-  };
-
-  const connectSocket = () => {
-    socketRef.current = io(AI_SERVICE_URL, {
-      transports: ['websocket'],
-      upgrade: false,
-    });
-    
-    socketRef.current.on('connect', () => {
-      setStatus('online');
-      setIsStreaming(true);
-      runDetectionLoop();
-    });
   };
 
   const runDetectionLoop = async () => {
     let frameCount = 0;
     let lastTime = Date.now();
 
-    const detect = async () => {
+    const detectFrame = async () => {
       if (!videoRef.current || !canvasRef.current || !modelRef.current) return;
-      
-      // Perform local detection
+
+      // 1. Run local inference
       const predictions = await modelRef.current.detect(videoRef.current);
       setDetections(predictions);
       setProcessedFrames(prev => prev + 1);
 
-      // Draw results to canvas
+      // 2. Draw detections to the UI
       const ctx = canvasRef.current.getContext('2d');
       if (ctx) {
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
@@ -93,31 +98,33 @@ const LiveCamera = () => {
           ctx.strokeStyle = '#10b981';
           ctx.lineWidth = 3;
           ctx.strokeRect(x, y, width, height);
+          
           ctx.fillStyle = '#10b981';
           ctx.font = 'bold 16px Inter';
           ctx.fillText(`${prediction.class.toUpperCase()}`, x, y > 20 ? y - 5 : y + 20);
-          
-          // Trigger Alarm via Socket if 'person' is detected
-          if (prediction.class === 'person' && prediction.score > 0.6) {
+
+          // 3. Trigger Remote Alarm if person detected
+          if (prediction.class === 'person' && prediction.score > 0.65) {
             socketRef.current?.emit('alarm-trigger', {
-              label: 'PERSON_DETECTED',
+              label: 'PERSON',
               confidence: prediction.score,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toLocaleTimeString()
             });
           }
         });
       }
 
+      // Performance tracking
       frameCount++;
       if (Date.now() - lastTime >= 1000) {
         setFps(frameCount);
         frameCount = 0;
         lastTime = Date.now();
       }
-      animationFrameRef.current = requestAnimationFrame(detect);
+      animationFrameRef.current = requestAnimationFrame(detectFrame);
     };
 
-    detect();
+    detectFrame();
   };
 
   const stopCamera = () => {
@@ -132,7 +139,7 @@ const LiveCamera = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-6 text-slate-100">
+    <div className="min-h-screen bg-slate-950 p-6 text-slate-100 font-sans">
       <div className="max-w-6xl mx-auto">
         <header className="flex flex-col md:flex-row justify-between items-center mb-10 gap-4">
           <div>
@@ -140,42 +147,54 @@ const LiveCamera = () => {
               Sentry Edge Vision
             </h1>
             <p className="text-slate-500 font-mono text-sm mt-1">
-              ENGINE: <span className="text-emerald-400">TENSORFLOW.JS EDGE</span> | STATUS: {status.toUpperCase()}
+              ENGINE: <span className="text-emerald-400 font-bold">EDGE_AI_V3</span> | STATUS: {status.toUpperCase()}
             </p>
           </div>
-          <Button onClick={isStreaming ? stopCamera : startCamera} variant={isStreaming ? 'danger' : 'primary'} className="px-10 py-6 text-lg font-bold">
-            {isStreaming ? 'TERMINATE FEED' : 'INITIATE AI'}
+          <Button 
+            onClick={isStreaming ? stopCamera : startCamera} 
+            variant={isStreaming ? 'danger' : 'primary'}
+            className="px-10 py-6 text-lg font-bold transition-all hover:scale-105 active:scale-95"
+          >
+            {isStreaming ? 'STOP SCAN' : 'START AI CORE'}
           </Button>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           <div className="lg:col-span-3 space-y-6">
-            <Card className="bg-black border-slate-800 p-0 overflow-hidden relative shadow-2xl">
+            <Card className="bg-black border-slate-800 p-0 overflow-hidden relative shadow-2xl rounded-2xl">
               <video ref={videoRef} className="hidden" muted playsInline />
               <canvas ref={canvasRef} className="w-full h-auto" />
               {status === 'loading_ai' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 backdrop-blur-md">
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/95 backdrop-blur-xl">
                   <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
-                  <p className="font-mono text-xs tracking-widest text-emerald-500">DOWNLOADING AI WEIGHTS...</p>
+                  <p className="font-mono text-xs tracking-widest text-emerald-500 animate-pulse">OPTIMIZING AI WEIGHTS...</p>
                 </div>
               )}
             </Card>
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard label="LOCAL FPS" value={fps} />
-              <StatCard label="AI INFERENCE" value={`${processedFrames}`} />
+              <StatCard label="CLIENT FPS" value={fps} />
+              <StatCard label="LOCAL INFERENCE" value={processedFrames} />
               <StatCard label="OBJECTS" value={detections.length} />
-              <StatCard label="SERVER LOAD" value="1%" />
+              <StatCard label="CPU LOAD" value="LOW (EDGE)" />
             </div>
           </div>
-          <aside>
-            <Card title="EVENT LOG" className="bg-slate-900/40 border-slate-800">
-              <div className="space-y-2">
-                {detections.map((d, i) => (
-                  <div key={i} className="flex justify-between items-center p-2 bg-slate-800/50 rounded border border-slate-700/30 text-xs">
-                    <span className="font-bold text-emerald-400 uppercase">{d.class}</span>
-                    <Badge className="bg-emerald-500/10 text-emerald-500">{(d.score * 100).toFixed(0)}%</Badge>
-                  </div>
-                ))}
+
+          <aside className="space-y-4">
+            <Card title="DETECTION LOG" className="bg-slate-900/40 border-slate-800">
+              <div className="space-y-2 min-h-[300px]">
+                {detections.length === 0 ? (
+                  <p className="text-slate-600 italic text-center text-sm py-20">Monitoring live feed...</p>
+                ) : (
+                  detections.map((d, i) => (
+                    <div key={i} className="flex justify-between items-center p-3 bg-slate-800/50 rounded-lg border border-slate-700/30 animate-in fade-in slide-in-from-right-2">
+                      <span className="font-bold text-emerald-400 text-xs tracking-tighter uppercase">{d.class}</span>
+                      <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
+                        {(d.score * 100).toFixed(0)}%
+                      </Badge>
+                    </div>
+                  ))
+                )}
               </div>
             </Card>
           </aside>

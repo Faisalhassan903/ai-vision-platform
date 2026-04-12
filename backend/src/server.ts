@@ -15,27 +15,34 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const httpServer = createServer(app);
 
-// 1. Optimized Socket Setup
+// Initialize Socket.io with Polling Fallback
 const io = new Server(httpServer, {
-  cors: { origin: '*', methods: ['GET', 'POST'] }
+  cors: {
+    origin: "*", 
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  transports: ['polling', 'websocket'], // Essential for Render Free Tier stability
+  allowEIO3: true
 });
 
-// 2. The "Smart" Alert Listener (Zero CPU Overhead)
+// Alarm Event Management
 io.on('connection', (socket) => {
-  console.log(`📡 New Client Connected: ${socket.id}`);
+  console.log(`📡 Client Linked: ${socket.id} via ${socket.conn.transport.name}`);
 
-  // Listen for the Edge-AI alarm trigger
-  socket.on('alarm-trigger', (alertData) => {
-    console.log(`🚨 ALARM: ${alertData.label} at ${alertData.timestamp}`);
+  // Receives tiny text alerts from the browser
+  socket.on('alarm-trigger', (data) => {
+    console.log(`🚨 TARGET DETECTED: ${data.label} (${data.timestamp})`);
     
-    // Broadcast to all other connected clients (Security Dashboard)
-    socket.broadcast.emit('broadcast-alarm', alertData);
+    // Broadcast the alert to all other connected dashboards
+    socket.broadcast.emit('remote-alert', data);
     
-    // INTEGRATION POINT: Add Telegram or Email notification here
-    // Example: TelegramBot.sendMessage(`Movement detected: ${alertData.label}`);
+    // Future expansion: Trigger SMS, Telegram, or Email here
   });
 
-  socket.on('disconnect', () => console.log('🔌 Client Disconnected'));
+  socket.on('disconnect', (reason) => {
+    console.log(`🔌 Client Disconnected: ${socket.id} (${reason})`);
+  });
 });
 
 // Middleware
@@ -44,7 +51,11 @@ app.use(express.json());
 
 // Routes
 app.get('/', (req: Request, res: Response) => {
-  res.json({ status: 'online', mode: 'Edge-AI Hub' });
+  res.json({ 
+    status: 'online', 
+    architecture: 'Edge-AI Hub',
+    uptime: process.uptime() 
+  });
 });
 
 app.use('/api/vision', visionRoutes);
@@ -52,12 +63,17 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/auth', authRoutes);
 
-// Server Startup
-httpServer.listen(PORT, async () => {
-  console.log(`✅ Edge-AI Hub running on port ${PORT}`);
+// Database & Server Launch
+const startServer = async () => {
   try {
     await connectDB();
+    httpServer.listen(PORT, () => {
+      console.log(`🚀 Sentry Hub Active on Port ${PORT}`);
+    });
   } catch (err) {
-    console.error('❌ DB Connection failed');
+    console.error('❌ Critical Startup Failure:', err);
+    process.exit(1);
   }
-});
+};
+
+startServer();
