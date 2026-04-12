@@ -4,7 +4,7 @@ import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import { io, Socket } from 'socket.io-client';
 
 // Your existing hooks and components
-import { useAlert } from '../hooks/useAlert';
+import { useAlerts } from '../hooks/useAlerts';
 import { useTelegram } from '../hooks/useTelegram';
 import { AI_SERVICE_URL } from '../config';
 import { Button, StatCard } from '../components/ui';
