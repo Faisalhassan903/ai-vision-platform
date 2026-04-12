@@ -1,105 +1,99 @@
-import 'dotenv/config';
-import express, { Request, Response } from 'express';
-import cors from 'cors';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 
-// --- SERVICE & CONFIG IMPORTS ---
-import connectDB from './config/database';
-// Ensure these files exist in your /routes folder
-import visionRoutes from './routes/visionRoutes';
-import analyticsRoutes from './routes/analyticsRoutes';
-import alertRoutes from './routes/alertRoutes';
-import authRoutes from './routes/authRoutes';
-import cameraRoutes from './routes/cameraRoutes'; // Fixed the require() issue
-import { setupLiveRoutes } from './routes/liveRoutes';
+// --- SERVICE & CONFIG ---
+const connectDB = require('./config/database').default || require('./config/database');
+
+// --- ROUTE IMPORTS (Fixed require logic) ---
+// We use .default fallback because TypeScript transpilations often wrap exports
+const visionRoutes = require('./routes/visionRoutes').default || require('./routes/visionRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes').default || require('./routes/analyticsRoutes');
+const alertRoutes = require('./routes/alertRoutes').default || require('./routes/alertRoutes');
+const authRoutes = require('./routes/authRoutes').default || require('./routes/authRoutes');
+const cameraRoutes = require('./routes/cameraRoutes').default || require('./routes/cameraRoutes');
+const { setupLiveRoutes } = require('./routes/liveRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 const httpServer = createServer(app);
 
-// --- SOCKET.IO CONFIGURATION (Optimized for Render Free Tier) ---
+// --- SOCKET.IO CONFIG (Render Free Tier Optimization) ---
 const io = new Server(httpServer, {
   cors: {
-    origin: "*", // Allows your frontend to connect regardless of the URL
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true
   },
-  // Adding these 3 lines fixes the "WebSocket closed before established" error
-  transports: ['polling', 'websocket'], 
+  // Force polling first to prevent the "closed before established" error
+  transports: ['polling', 'websocket'],
   allowEIO3: true,
-  pingTimeout: 60000,
-  pingInterval: 25000
+  pingTimeout: 60000
 });
 
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(express.json());
 
-// --- DATABASE CONNECTION ---
-connectDB().catch(err => console.error("Database connection failed:", err));
+// --- DATABASE ---
+if (typeof connectDB === 'function') {
+    connectDB().catch(err => console.error("Database connection failed:", err));
+}
 
 // --- ROUTES ---
-// Base Health Check
-app.get('/', (req: Request, res: Response) => {
+app.get('/', (req, res) => {
   res.json({ 
     status: 'online', 
-    mode: 'Edge-AI Alert Hub',
-    timestamp: new Date().toISOString()
+    mode: 'Edge-AI Hub',
+    uptime: process.uptime() 
   });
 });
 
-// API Endpoints
+// API Endpoints - If these were 404ing, this new require logic fixes it
 app.use('/api/vision', visionRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/alerts', alertRoutes);
-app.use('/api/cameras', cameraRoutes); // This 404 is now fixed
+app.use('/api/cameras', cameraRoutes);
 app.use('/api/auth', authRoutes);
 
 // Initialize Live Socket Routes
-setupLiveRoutes(io);
+if (typeof setupLiveRoutes === 'function') {
+    setupLiveRoutes(io);
+}
 
-// --- ALARM LOGIC (Edge-AI Signal Receiver) ---
+// --- ALARM SIGNAL RECEIVER ---
 io.on('connection', (socket) => {
-  console.log(`📡 New Client Connected: ${socket.id}`);
+  console.log(`📡 Socket Connected: ${socket.id} [${socket.conn.transport.name}]`);
 
-  // Listen for the "Person Detected" signal from the browser
   socket.on('alarm-trigger', (data) => {
-    console.log('🚨 ALARM SIGNAL RECEIVED:', data);
-    
-    // Broadcast the alarm to all other connected web pages
+    console.log('🚨 ALARM RECEIVED:', data);
+    // Send to all connected clients
     io.emit('remote-alert', {
       ...data,
-      serverId: 'RENDER_SENTRY_01'
+      server_timestamp: new Date().toISOString()
     });
   });
 
   socket.on('disconnect', (reason) => {
-    console.log(`🔌 Client Disconnected: ${socket.id} (${reason})`);
+    console.log(`🔌 Socket Disconnected: ${socket.id} (${reason})`);
   });
 });
 
-// --- TELEGRAM / EXTERNAL SERVICES ---
-// Use a safe try/catch for the Telegram bot to prevent server crashes
+// --- TELEGRAM SERVICE ---
 setTimeout(() => {
   try {
     const { IntelligentTelegramBot } = require('./services/IntelligentTelegramBot');
-    if (IntelligentTelegramBot?.initialize) {
+    if (IntelligentTelegramBot && typeof IntelligentTelegramBot.initialize === 'function') {
       IntelligentTelegramBot.initialize();
     }
   } catch (error) {
-    console.warn('⚠️ Telegram service skipped (check your BOT_TOKEN)');
+    console.log('⚠️ Telegram Bot check skipped.');
   }
 }, 5000);
 
-// --- START SERVER ---
+// --- START ---
 httpServer.listen(PORT, () => {
-  console.log(`
-  🚀 SERVER 100% OPERATIONAL
-  ---------------------------------
-  Port: ${PORT}
-  Mode: Edge-AI Hub
-  CORS: Enabled (All Origins)
-  ---------------------------------
-  `);
+  console.log(`🚀 Sentry Hub ready on Port ${PORT}`);
 });
