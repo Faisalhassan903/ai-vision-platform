@@ -1,99 +1,48 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const { createServer } = require('http');
-const { Server } = require('socket.io');
+import express, { Request, Response } from 'express';
+import cors from 'cors';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import dotenv from 'dotenv';
 
-// --- SERVICE & CONFIG ---
-const connectDB = require('./config/database').default || require('./config/database');
+// Route Imports - Ensure these files have "export default router"
+import alertRoutes from './routes/alertRoutes';
+import cameraRoutes from './routes/cameraRoutes';
+import authRoutes from './routes/authRoutes';
+import visionRoutes from './routes/visionRoutes';
 
-// --- ROUTE IMPORTS (Fixed require logic) ---
-// We use .default fallback because TypeScript transpilations often wrap exports
-const visionRoutes = require('./routes/visionRoutes').default || require('./routes/visionRoutes');
-const analyticsRoutes = require('./routes/analyticsRoutes').default || require('./routes/analyticsRoutes');
-const alertRoutes = require('./routes/alertRoutes').default || require('./routes/alertRoutes');
-const authRoutes = require('./routes/authRoutes').default || require('./routes/authRoutes');
-const cameraRoutes = require('./routes/cameraRoutes').default || require('./routes/cameraRoutes');
-const { setupLiveRoutes } = require('./routes/liveRoutes');
-
+dotenv.config();
 const app = express();
-const PORT = process.env.PORT || 10000;
 const httpServer = createServer(app);
+const PORT = process.env.PORT || 10000;
 
-// --- SOCKET.IO CONFIG (Render Free Tier Optimization) ---
+// Socket.io Setup
 const io = new Server(httpServer, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-    credentials: true
-  },
-  // Force polling first to prevent the "closed before established" error
-  transports: ['polling', 'websocket'],
-  allowEIO3: true,
-  pingTimeout: 60000
+  cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-// --- MIDDLEWARE ---
+app.set('socketio', io); // Accessible in routes via req.app.get('socketio')
+
 app.use(cors());
 app.use(express.json());
 
-// --- DATABASE ---
-if (typeof connectDB === 'function') {
-    connectDB().catch(err => console.error("Database connection failed:", err));
-}
-
-// --- ROUTES ---
-app.get('/', (req, res) => {
-  res.json({ 
-    status: 'online', 
-    mode: 'Edge-AI Hub',
-    uptime: process.uptime() 
-  });
-});
-
-// API Endpoints - If these were 404ing, this new require logic fixes it
-app.use('/api/vision', visionRoutes);
-app.use('/api/analytics', analyticsRoutes);
+// Routes
 app.use('/api/alerts', alertRoutes);
 app.use('/api/cameras', cameraRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/vision', visionRoutes);
 
-// Initialize Live Socket Routes
-if (typeof setupLiveRoutes === 'function') {
-    setupLiveRoutes(io);
-}
-
-// --- ALARM SIGNAL RECEIVER ---
-io.on('connection', (socket) => {
-  console.log(`📡 Socket Connected: ${socket.id} [${socket.conn.transport.name}]`);
-
-  socket.on('alarm-trigger', (data) => {
-    console.log('🚨 ALARM RECEIVED:', data);
-    // Send to all connected clients
-    io.emit('remote-alert', {
-      ...data,
-      server_timestamp: new Date().toISOString()
-    });
-  });
-
-  socket.on('disconnect', (reason) => {
-    console.log(`🔌 Socket Disconnected: ${socket.id} (${reason})`);
-  });
+// Health Check
+app.get('/', (req, res) => {
+  res.json({ status: 'online', timestamp: new Date() });
 });
 
-// --- TELEGRAM SERVICE ---
-setTimeout(() => {
-  try {
-    const { IntelligentTelegramBot } = require('./services/IntelligentTelegramBot');
-    if (IntelligentTelegramBot && typeof IntelligentTelegramBot.initialize === 'function') {
-      IntelligentTelegramBot.initialize();
-    }
-  } catch (error) {
-    console.log('⚠️ Telegram Bot check skipped.');
-  }
-}, 5000);
+// EMERGENCY CATCH: This prevents the 404 (Not Found) 
+// if a route isn't caught by the files above
+app.use((req, res) => {
+  console.log(`⚠️ Route Not Found: ${req.method} ${req.url}`);
+  res.status(404).json({ error: `Path ${req.url} not found` });
+});
 
-// --- START ---
 httpServer.listen(PORT, () => {
-  console.log(`🚀 Sentry Hub ready on Port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
