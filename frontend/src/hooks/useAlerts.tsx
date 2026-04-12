@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
+import { API_BASE_URL, SOCKET_URL } from '../config';
 
 interface Alert {
   _id: string;
@@ -24,7 +25,8 @@ export function useAlerts() {
   // Fetch alerts from API
   const fetchAlerts = useCallback(async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/alerts?limit=50');
+      // Updated to use API_BASE_URL
+      const response = await axios.get(`${API_BASE_URL}/api/alerts?limit=50`);
       setAlerts(response.data.alerts);
       
       const unread = response.data.alerts.filter((a: Alert) => !a.acknowledged).length;
@@ -37,7 +39,8 @@ export function useAlerts() {
   // Acknowledge alert
   const acknowledgeAlert = useCallback(async (alertId: string, notes?: string) => {
     try {
-      await axios.post(`http://localhost:5000/api/alerts/${alertId}/acknowledge`, {
+      // Updated to use API_BASE_URL
+      await axios.post(`${API_BASE_URL}/api/alerts/${alertId}/acknowledge`, {
         user: 'Current User',
         notes: notes
       });
@@ -57,7 +60,8 @@ export function useAlerts() {
 
   // Connect to Socket.io for real-time alerts
   useEffect(() => {
-    const newSocket = io('http://localhost:5000');
+    // Updated to use SOCKET_URL
+    const newSocket = io(SOCKET_URL);
     
     newSocket.on('connect', () => {
       console.log('✅ Alert socket connected');
@@ -66,16 +70,13 @@ export function useAlerts() {
     newSocket.on('alert-triggered', (data: any) => {
       console.log('🚨 New alert received:', data);
       
-      // Play audio for critical alerts
       if (data.priority === 'critical') {
         playAlertSound();
       }
       
-      // Add to alerts list
       setAlerts(prev => [data.alert, ...prev]);
       setUnreadCount(prev => prev + 1);
       
-      // Show browser notification
       showBrowserNotification(data.alert);
     });
 

@@ -7,8 +7,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useCameraStore } from '../store';
 import type { Camera } from '../store';
-
-const API_URL = 'http://localhost:5000/api/cameras';
+import { API_BASE_URL } from '../config';
+const API_URL = `${API_BASE_URL}/api/cameras`;
 
 interface UseCamerasReturn {
   cameras: Camera[];

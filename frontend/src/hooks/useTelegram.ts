@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { API_BASE_URL } from '../config';
 
 export const useTelegram = () => {
   const { token, refreshUser } = useAuthStore();
@@ -13,7 +14,7 @@ export const useTelegram = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('http://localhost:5000/api/auth/link-telegram', {
+      const res = await fetch(`${API_BASE_URL}/api/auth/link-telegram`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
