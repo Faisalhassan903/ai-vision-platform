@@ -1,29 +1,45 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { io } from 'socket.io-client';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { io, Socket } from 'socket.io-client';
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import { Button, StatCard } from '../components/ui';
 import { AI_SERVICE_URL } from '../config';
 
+const OBJECT_CLASSES = [
+  'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck',
+  'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench',
+  'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra',
+  'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+  'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove',
+  'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup',
+  'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
+  'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
+  'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse',
+  'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
+  'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier',
+  'toothbrush'
+];
+
 const LiveCamera = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
-  const socketRef = useRef<any>(null);
-  
+  const socketRef = useRef<Socket | null>(null);
+  const requestRef = useRef<number>();
+  const lastAlarmTime = useRef<number>(0);
+
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState('OFFLINE');
-  const [stats, setStats] = useState({ fps: 0, objects: 0 });
+  const [stats, setStats] = useState({ objects: 0, memory: 0 });
 
-  // 1. CLEAN ASYNC DETECTION ENGINE
-  const detectFrame = async () => {
+  // 1. ASYNC DETECTION ENGINE (The Core Fix)
+  const detectFrame = useCallback(async () => {
     if (!isActive || !videoRef.current || !modelRef.current) return;
 
-    // Start manual memory scope for async work
+    // Use engine scope to prevent "Promise inside tidy" errors while auto-cleaning memory
     tf.engine().startScope();
 
     try {
-      // Perform detection (Async call)
       const predictions = await modelRef.current.detect(videoRef.current, 20, 0.5);
       
       const ctx = canvasRef.current?.getContext('2d');
@@ -31,54 +47,60 @@ const LiveCamera = () => {
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
         
         predictions.forEach((prediction) => {
-          const [x, y, w, h] = prediction.bbox;
-          ctx.strokeStyle = '#00FF41';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x, y, w, h);
-          
-          ctx.fillStyle = '#00FF41';
-          ctx.font = '14px JetBrains Mono, monospace';
-          ctx.fillText(
-            `${prediction.class.toUpperCase()} ${Math.round(prediction.score * 100)}%`, 
-            x, y > 10 ? y - 5 : 10
-          );
+          if (OBJECT_CLASSES.includes(prediction.class)) {
+            const [x, y, w, h] = prediction.bbox;
+            
+            // Draw UI
+            ctx.strokeStyle = '#00FF41';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+            ctx.fillStyle = '#00FF41';
+            ctx.font = '12px JetBrains Mono, monospace';
+            ctx.fillText(
+              `${prediction.class.toUpperCase()} ${Math.round(prediction.score * 100)}%`, 
+              x, y > 10 ? y - 5 : 10
+            );
 
-          if (prediction.class === 'person' && socketRef.current?.connected) {
-            socketRef.current.emit('alarm-trigger', { label: 'PERSON_DETECTED' });
+            // Trigger Alarm via Socket (Throttled to once every 3 seconds)
+            const now = Date.now();
+            if (now - lastAlarmTime.current > 3000 && socketRef.current?.connected) {
+              socketRef.current.emit('alarm-trigger', { 
+                label: prediction.class,
+                timestamp: now 
+              });
+              lastAlarmTime.current = now;
+            }
           }
         });
         
-        setStats(prev => ({ ...prev, objects: predictions.length }));
+        setStats({ 
+            objects: predictions.length, 
+            memory: Math.round(tf.memory().numBytes / 1024 / 1024) 
+        });
       }
     } catch (err) {
       console.error("Inference Error:", err);
     } finally {
-      // End scope and dispose of all tensors created during this frame
-      tf.engine().endScope();
+      tf.engine().endScope(); // Safely dispose all temporary tensors
+      if (isActive) {
+        requestRef.current = requestAnimationFrame(detectFrame);
+      }
     }
+  }, [isActive]);
 
-    // Recursive call with safety buffer
-    if (isActive) {
-      requestAnimationFrame(detectFrame);
-    }
-  };
-
+  // 2. HARDWARE & SOCKET INITIALIZATION
   const startEngine = async () => {
     try {
       setStatus('WARMING_UP...');
       await tf.ready();
       
-      // Use WebGL for speed, but fallback to CPU if the browser/hardware blocks it
-      try {
-        await tf.setBackend('webgl');
-      } catch (e) {
-        await tf.setBackend('cpu');
-      }
+      // Force WebGL for high performance
+      await tf.setBackend('webgl');
 
       const [loadedModel, stream] = await Promise.all([
         cocoSsd.load({ base: 'lite_mobilenet_v2' }),
         navigator.mediaDevices.getUserMedia({ 
-          video: { width: 640, height: 480, frameRate: { ideal: 24 } } 
+          video: { width: 640, height: 480, frameRate: { ideal: 30 } } 
         })
       ]);
 
@@ -98,20 +120,24 @@ const LiveCamera = () => {
       }
 
       socketRef.current = io(AI_SERVICE_URL, { 
-        transports: ['polling', 'websocket'],
-        reconnectionAttempts: 10 
+        transports: ['websocket'],
+        reconnectionAttempts: 5 
       });
 
     } catch (err) {
-      console.error("Setup Error:", err);
+      console.error("Critical Setup Error:", err);
       setStatus('CORE_FAILURE');
     }
   };
 
   useEffect(() => {
-    if (isActive) detectFrame();
-    return () => { setIsActive(false); };
-  }, [isActive]);
+    if (isActive) {
+      requestRef.current = requestAnimationFrame(detectFrame);
+    }
+    return () => {
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+    };
+  }, [isActive, detectFrame]);
 
   return (
     <div className="p-8 bg-[#0a0a0a] min-h-screen font-mono text-[#00FF41]">
@@ -119,7 +145,7 @@ const LiveCamera = () => {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-2xl font-black tracking-tighter">SENTRY_CORE_V5</h1>
-            <p className="text-[10px] opacity-50 uppercase tracking-widest">{status} // SECURE_UPLINK_READY</p>
+            <p className="text-[10px] opacity-50 uppercase tracking-widest">{status} // SECURE_UPLINK</p>
           </div>
           <Button 
             onClick={isActive ? () => window.location.reload() : startEngine} 
@@ -130,29 +156,28 @@ const LiveCamera = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          <div className="lg:col-span-3 relative bg-[#111] rounded border border-white/5 overflow-hidden shadow-inner">
-            <video ref={videoRef} className="w-full h-auto opacity-40 grayscale" muted playsInline />
+          <div className="lg:col-span-3 relative bg-[#111] rounded border border-white/5 overflow-hidden">
+            <video ref={videoRef} className="w-full h-auto opacity-60" muted playsInline />
             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
             
             {!isActive && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center space-y-2">
-                  <div className="w-8 h-1 bg-[#00FF41]/20 mx-auto animate-pulse" />
-                  <p className="text-[10px] tracking-widest opacity-30">STANDING_BY_FOR_INPUT</p>
+              <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                <div className="text-center">
+                  <p className="text-[10px] tracking-widest opacity-50 animate-pulse">OFFLINE // IDLE_MODE</p>
                 </div>
               </div>
             )}
           </div>
 
           <div className="flex flex-col gap-6">
-            <StatCard label="CORE_OBJECTS" value={stats.objects} />
-            <div className="flex-1 bg-white/5 border border-white/10 p-4 rounded text-[11px] overflow-hidden">
-              <p className="text-white/30 border-b border-white/10 mb-3 pb-1">KERNEL_LOGS</p>
-              <div className="space-y-1 opacity-70">
-                <p>&gt; TF_BACKEND: {tf.getBackend()}</p>
-                <p>&gt; SOCKET: {socketRef.current?.connected ? 'ACTIVE' : 'IDLE'}</p>
-                <p>&gt; MEMORY: {Math.round(tf.memory().numBytes / 1024 / 1024)}MB</p>
-                {stats.objects > 0 && <p className="animate-pulse">&gt; EVENT: TARGET_ACQUIRED</p>}
+            <StatCard label="LIVE_OBJECTS" value={stats.objects} />
+            <div className="flex-1 bg-white/5 border border-white/10 p-4 rounded text-[11px]">
+              <p className="text-white/30 border-b border-white/10 mb-3 pb-1 uppercase">Diagnostics</p>
+              <div className="space-y-2 opacity-80">
+                <p>&gt; ENGINE: TFJS_WEBGL</p>
+                <p>&gt; MEMORY: {stats.memory}MB</p>
+                <p>&gt; SOCKET: {socketRef.current?.connected ? 'STABLE' : 'WAITING'}</p>
+                {stats.objects > 0 && <p className="text-white animate-bounce">&gt; THREAT_DETECTED</p>}
               </div>
             </div>
           </div>
