@@ -2,31 +2,21 @@ import { useState, useRef, useEffect } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Card, Button, StatCard, Badge } from '../components/ui';
 import AlertToast from '../components/AlertToast';
-
-// 1. IMPORT BOTH URLS
 import { SOCKET_URL, AI_SERVICE_URL } from '../config'; 
 
 interface Detection {
   class: string;
   confidence: number;
-  bbox: {
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-    width: number;
-    height: number;
-  };
+  bbox: { x1: number; y1: number; x2: number; y2: number; width: number; height: number; };
 }
 
 const THREAT_LEVELS = {
-  critical: ['knife', 'scissors', 'baseball bat', 'tennis racket', 'bottle', 'wine glass', 'fork', 'spoon', 'person'],
-  warning: ['backpack', 'handbag', 'suitcase', 'umbrella', 'tie', 'skateboard', 'surfboard', 'sports ball'],
-  info: ['cat', 'dog', 'bird', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign', 'bench', 'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'book', 'clock', 'vase', 'teddy bear']
+  critical: ['knife', 'scissors', 'baseball bat', 'person'],
+  warning: ['backpack', 'handbag', 'suitcase'],
+  info: ['cell phone', 'laptop', 'chair']
 };
 
 function LiveCamera() {
-  // --- REFS ---
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -35,7 +25,6 @@ function LiveCamera() {
   const lastDetectionsRef = useRef<Detection[]>([]);
   const hasInteractedRef = useRef(false);
 
-  // --- STATE (The missing part that caused the ReferenceError) ---
   const [isStreaming, setIsStreaming] = useState(false);
   const [detections, setDetections] = useState<Detection[]>([]);
   const [fps, setFps] = useState(0);
@@ -44,9 +33,7 @@ function LiveCamera() {
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
 
   useEffect(() => {
-    if ('Notification' in window) {
-      setNotificationPermission(Notification.permission);
-    }
+    if ('Notification' in window) setNotificationPermission(Notification.permission);
     return () => stopCamera();
   }, []);
 
@@ -54,52 +41,54 @@ function LiveCamera() {
     lastDetectionsRef.current = detections;
   }, [detections]);
 
-  const requestNotifications = async () => {
-    if ('Notification' in window) {
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
-    }
-  };
-
   const connectSocket = () => {
-  socketRef.current = io(AI_SERVICE_URL, {
-    // This line tells the browser: "Don't even try HTTP, go straight to WebSocket"
-    transports: ['websocket'], 
-    // This prevents the "polling" attempt that causes the 404
-    upgrade: false, 
-    reconnection: true,
-    reconnectionAttempts: 5,
-    timeout: 20000,
-  });
+    console.log('🔌 Attempting Socket Connection to:', AI_SERVICE_URL);
+    
+    socketRef.current = io(AI_SERVICE_URL, {
+      transports: ['websocket'],
+      upgrade: false, 
+      reconnection: true,
+      reconnectionAttempts: 10
+    });
     
     socketRef.current.on('connect', () => {
-      console.log('✅ AI Service Connected:', AI_SERVICE_URL);
+      console.log('✅ [DEBUG] Connected to AI Service. Socket ID:', socketRef.current?.id);
       setIsStreaming(true);
       startProcessing();
     });
 
+    socketRef.current.on('connect_error', (err) => {
+      console.error('❌ [DEBUG] Connection Error:', err.message);
+    });
+
     socketRef.current.on('detections', (data) => {
-      setDetections(data.detections || []);
+      // DEBUG: Verify data structure
+      const list = Array.isArray(data) ? data : (data.detections || []);
+      if (list.length > 0) {
+        console.log(`🎯 [DEBUG] Received ${list.length} detections:`, list[0].class);
+      }
+      setDetections(list);
       setProcessedFrames(prev => prev + 1);
     });
 
     socketRef.current.on('alert-triggered', (data) => {
+      console.log('🚨 [DEBUG] Alert Triggered:', data);
       const alertWithId = { ...data.alert, id: Date.now(), priority: data.priority };
       setActiveAlerts(prev => [...prev, alertWithId]);
-      if (hasInteractedRef.current && data.priority === 'critical') playAlarm();
     });
   };
 
   const startCamera = async () => {
+    console.log('📷 Initializing MediaDevices...');
     try {
-      if (Notification.permission === 'default') await requestNotifications();
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: 'user' }
+        video: { width: 640, height: 480 }
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
           videoRef.current?.play().then(() => {
+            console.log('🎥 Video stream playing.');
             hasInteractedRef.current = true;
             if (canvasRef.current && videoRef.current) {
               canvasRef.current.width = videoRef.current.videoWidth;
@@ -110,25 +99,8 @@ function LiveCamera() {
         };
       }
     } catch (err: any) {
-      alert('Camera error: ' + err.message);
+      console.error('❌ Camera Error:', err.message);
     }
-  };
-
-  const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
-      (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
-    }
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-    if (socketRef.current) socketRef.current.disconnect();
-    setIsStreaming(false);
-    setDetections([]);
-  };
-
-  const getThreatLevel = (objectClass: string): 'critical' | 'warning' | 'info' => {
-    if (THREAT_LEVELS.critical.includes(objectClass)) return 'critical';
-    if (THREAT_LEVELS.warning.includes(objectClass)) return 'warning';
-    return 'info';
   };
 
   const startProcessing = () => {
@@ -139,20 +111,28 @@ function LiveCamera() {
       if (!videoRef.current || !canvasRef.current) return;
       const ctx = canvasRef.current.getContext('2d');
       if (!ctx) return;
+
+      // 1. Clear and Draw Video
       ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
 
-      // --- Draw Detections ---
+      // 2. Draw Detections
       lastDetectionsRef.current.forEach((det) => {
+        // Change these scales based on your YOLO input size (usually 416 or 640)
         const scaleX = canvasRef.current!.width / 416;
         const scaleY = canvasRef.current!.height / 416;
+
         const x1 = det.bbox.x1 * scaleX;
         const y1 = det.bbox.y1 * scaleY;
         const w = (det.bbox.x2 - det.bbox.x1) * scaleX;
         const h = (det.bbox.y2 - det.bbox.y1) * scaleY;
 
-        ctx.strokeStyle = getThreatLevel(det.class) === 'critical' ? '#ef4444' : '#3b82f6';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 3;
         ctx.strokeRect(x1, y1, w, h);
+        
+        ctx.fillStyle = '#00ff00';
+        ctx.font = 'bold 18px sans-serif';
+        ctx.fillText(`${det.class} ${Math.round(det.confidence * 100)}%`, x1, y1 - 5);
       });
 
       fpsCounter++;
@@ -163,59 +143,83 @@ function LiveCamera() {
       }
       animationFrameRef.current = requestAnimationFrame(drawLoop);
     };
+
     drawLoop();
 
+    // 3. Frame Emission Logic
     intervalRef.current = setInterval(() => {
       if (canvasRef.current && socketRef.current?.connected) {
-        const frameData = canvasRef.current.toDataURL('image/jpeg', 0.5);
-        socketRef.current.emit('video-frame', { frame: frameData, cameraId: 'webcam-01' });
+        const frameData = canvasRef.current.toDataURL('image/jpeg', 0.4);
+        // DEBUG: Log first few emissions
+        if (processedFrames < 5) console.log('📤 [DEBUG] Emitting frame to AI...');
+        socketRef.current.emit('video-frame', { 
+            frame: frameData, 
+            cameraId: 'webcam-01' 
+        });
       }
-    }, 1000);
+    }, 1000); // 1 FPS for stability on free tier
   };
 
-  const playAlarm = () => { /* sound logic */ };
+  const stopCamera = () => {
+    console.log('🛑 Stopping stream...');
+    if (videoRef.current?.srcObject) {
+      (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+    }
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    if (socketRef.current) socketRef.current.disconnect();
+    setIsStreaming(false);
+  };
 
-  // Helpers for the UI
-  const criticalDetections = detections.filter(d => getThreatLevel(d.class) === 'critical');
-  const warningDetections = detections.filter(d => getThreatLevel(d.class) === 'warning');
+  const getThreatLevel = (c: string) => THREAT_LEVELS.critical.includes(c) ? 'critical' : 'info';
 
   return (
     <div className="min-h-screen bg-slate-900 p-6 text-white">
-      {/* (Keep your UI return logic exactly as it was) */}
+      <div className="fixed top-4 right-4 z-50 space-y-3">
+        {activeAlerts.map(a => (
+          <AlertToast key={a.id} alert={a} onClose={() => setActiveAlerts(p => p.filter(x => x.id !== a.id))} />
+        ))}
+      </div>
+
       <div className="max-w-7xl mx-auto">
-         <div className="flex justify-between items-center mb-8">
-           <h1 className="text-3xl font-bold">🎥 Live Security Feed</h1>
-           <div className="flex gap-4">
-             {!isStreaming ? (
-               <Button onClick={startCamera} variant="primary">▶️ Start Camera</Button>
-             ) : (
-               <Button onClick={stopCamera} variant="danger">⏹️ Stop Camera</Button>
-             )}
-           </div>
-         </div>
+        <header className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold">🎥 AI Security Console</h1>
+            <p className="text-slate-400">Status: {isStreaming ? '🟢 Online' : '⚪ Offline'}</p>
+          </div>
+          <Button onClick={isStreaming ? stopCamera : startCamera} variant={isStreaming ? 'danger' : 'primary'}>
+            {isStreaming ? 'Stop Feed' : 'Start Feed'}
+          </Button>
+        </header>
 
-         {isStreaming && (
-           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-             <StatCard icon="📊" value={fps} label="FPS" />
-             <StatCard icon="🎯" value={detections.length} label="Objects" />
-             <StatCard icon="🔴" value={criticalDetections.length} label="Critical" />
-             <StatCard icon="⚠️" value={warningDetections.length} label="Warnings" />
-           </div>
-         )}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            <Card className="bg-black p-0 overflow-hidden relative border-2 border-slate-700">
+              <video ref={videoRef} className="hidden" />
+              <canvas ref={canvasRef} className="w-full h-auto" />
+            </Card>
+            
+            <div className="grid grid-cols-4 gap-4">
+              <StatCard label="FPS" value={fps} />
+              <StatCard label="Objects" value={detections.length} />
+              <StatCard label="Processed" value={processedFrames} />
+              <StatCard label="AI Latency" value="Stable" />
+            </div>
+          </div>
 
-         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-           <div className="lg:col-span-2">
-             <Card className="relative overflow-hidden bg-black p-0">
-               <video ref={videoRef} className="hidden" playsInline muted />
-               <canvas ref={canvasRef} className="w-full h-auto block" />
-             </Card>
-           </div>
-           <Card title="🎯 Detections">
-             {detections.map((d, i) => (
-               <div key={i} className="p-2 border-b border-slate-700">{d.class}</div>
-             ))}
-           </Card>
-         </div>
+          <Card title="🎯 Live Detection List">
+            <div className="space-y-2">
+              {detections.length === 0 ? <p className="text-slate-500 italic">No objects found</p> : 
+                detections.map((d, i) => (
+                  <div key={i} className="flex justify-between bg-slate-800 p-2 rounded">
+                    <span>{d.class}</span>
+                    <Badge>{(d.confidence * 100).toFixed(0)}%</Badge>
+                  </div>
+                ))
+              }
+            </div>
+          </Card>
+        </div>
       </div>
     </div>
   );
