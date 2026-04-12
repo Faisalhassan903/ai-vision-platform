@@ -1,10 +1,10 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 
-// Route Imports - Ensure these files have "export default router"
+// Route Imports
 import alertRoutes from './routes/alertRoutes';
 import cameraRoutes from './routes/cameraRoutes';
 import authRoutes from './routes/authRoutes';
@@ -15,34 +15,41 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 10000;
 
-// Socket.io Setup
+// Socket.io initialization
 const io = new Server(httpServer, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-app.set('socketio', io); // Accessible in routes via req.app.get('socketio')
+// Attach io to app so routes can use it
+app.set('socketio', io);
 
 app.use(cors());
 app.use(express.json());
 
-// Routes
+// --- ROUTE REGISTRATION ---
+// We use a prefix to ensure no collision
 app.use('/api/alerts', alertRoutes);
 app.use('/api/cameras', cameraRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/vision', visionRoutes);
 
-// Health Check
+// --- DEBUGGING: Check registered routes ---
+console.log("✅ Routes Loaded: /alerts, /cameras, /auth, /vision");
+
 app.get('/', (req, res) => {
-  res.json({ status: 'online', timestamp: new Date() });
+  res.json({ message: "Sentry Hub Online" });
 });
 
-// EMERGENCY CATCH: This prevents the 404 (Not Found) 
-// if a route isn't caught by the files above
-app.use((req, res) => {
-  console.log(`⚠️ Route Not Found: ${req.method} ${req.url}`);
-  res.status(404).json({ error: `Path ${req.url} not found` });
+// --- GLOBAL 404 HANDLER ---
+// If the code reaches here, it means the route above didn't catch it
+app.use((req: Request, res: Response) => {
+  console.log(`❌ 404 at ${req.method} ${req.url}`);
+  res.status(404).json({ 
+    error: "Endpoint not found", 
+    received: { method: req.method, path: req.url } 
+  });
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server monitoring on port ${PORT}`);
 });
