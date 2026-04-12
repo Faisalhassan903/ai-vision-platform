@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
-import { API_BASE_URL, SOCKET_URL } from '../config';
+import { MAIN_BACKEND_URL, SOCKET_URL }
 
 interface Alert {
   _id: string;
@@ -26,7 +26,7 @@ export function useAlerts() {
   const fetchAlerts = useCallback(async () => {
     try {
       // Updated to use API_BASE_URL
-      const response = await axios.get(`${API_BASE_URL}/api/alerts?limit=50`);
+      const response = await axios.get(`${MAIN_BACKEND_URL}/api/alerts?limit=50`);
       setAlerts(response.data.alerts);
       
       const unread = response.data.alerts.filter((a: Alert) => !a.acknowledged).length;
