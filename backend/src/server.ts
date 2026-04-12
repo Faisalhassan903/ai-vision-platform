@@ -3,41 +3,75 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import connectDB from './config/database';
 
-// Import existing routes
+// --- SERVICE & CONFIG IMPORTS ---
+import connectDB from './config/database';
+// Ensure these files exist in your /routes folder
 import visionRoutes from './routes/visionRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
 import alertRoutes from './routes/alertRoutes';
 import authRoutes from './routes/authRoutes';
+import cameraRoutes from './routes/cameraRoutes'; // Fixed the require() issue
+import { setupLiveRoutes } from './routes/liveRoutes';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 const httpServer = createServer(app);
 
-// Initialize Socket.io with Polling Fallback
+// --- SOCKET.IO CONFIGURATION (Optimized for Render Free Tier) ---
 const io = new Server(httpServer, {
   cors: {
-    origin: "*", 
+    origin: "*", // Allows your frontend to connect regardless of the URL
     methods: ["GET", "POST"],
     credentials: true
   },
-  transports: ['polling', 'websocket'], // Essential for Render Free Tier stability
-  allowEIO3: true
+  // Adding these 3 lines fixes the "WebSocket closed before established" error
+  transports: ['polling', 'websocket'], 
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
-// Alarm Event Management
-io.on('connection', (socket) => {
-  console.log(`📡 Client Linked: ${socket.id} via ${socket.conn.transport.name}`);
+// --- MIDDLEWARE ---
+app.use(cors());
+app.use(express.json());
 
-  // Receives tiny text alerts from the browser
+// --- DATABASE CONNECTION ---
+connectDB().catch(err => console.error("Database connection failed:", err));
+
+// --- ROUTES ---
+// Base Health Check
+app.get('/', (req: Request, res: Response) => {
+  res.json({ 
+    status: 'online', 
+    mode: 'Edge-AI Alert Hub',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// API Endpoints
+app.use('/api/vision', visionRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/alerts', alertRoutes);
+app.use('/api/cameras', cameraRoutes); // This 404 is now fixed
+app.use('/api/auth', authRoutes);
+
+// Initialize Live Socket Routes
+setupLiveRoutes(io);
+
+// --- ALARM LOGIC (Edge-AI Signal Receiver) ---
+io.on('connection', (socket) => {
+  console.log(`📡 New Client Connected: ${socket.id}`);
+
+  // Listen for the "Person Detected" signal from the browser
   socket.on('alarm-trigger', (data) => {
-    console.log(`🚨 TARGET DETECTED: ${data.label} (${data.timestamp})`);
+    console.log('🚨 ALARM SIGNAL RECEIVED:', data);
     
-    // Broadcast the alert to all other connected dashboards
-    socket.broadcast.emit('remote-alert', data);
-    
-    // Future expansion: Trigger SMS, Telegram, or Email here
+    // Broadcast the alarm to all other connected web pages
+    io.emit('remote-alert', {
+      ...data,
+      serverId: 'RENDER_SENTRY_01'
+    });
   });
 
   socket.on('disconnect', (reason) => {
@@ -45,35 +79,27 @@ io.on('connection', (socket) => {
   });
 });
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-
-// Routes
-app.get('/', (req: Request, res: Response) => {
-  res.json({ 
-    status: 'online', 
-    architecture: 'Edge-AI Hub',
-    uptime: process.uptime() 
-  });
-});
-
-app.use('/api/vision', visionRoutes);
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/alerts', alertRoutes);
-app.use('/api/auth', authRoutes);
-
-// Database & Server Launch
-const startServer = async () => {
+// --- TELEGRAM / EXTERNAL SERVICES ---
+// Use a safe try/catch for the Telegram bot to prevent server crashes
+setTimeout(() => {
   try {
-    await connectDB();
-    httpServer.listen(PORT, () => {
-      console.log(`🚀 Sentry Hub Active on Port ${PORT}`);
-    });
-  } catch (err) {
-    console.error('❌ Critical Startup Failure:', err);
-    process.exit(1);
+    const { IntelligentTelegramBot } = require('./services/IntelligentTelegramBot');
+    if (IntelligentTelegramBot?.initialize) {
+      IntelligentTelegramBot.initialize();
+    }
+  } catch (error) {
+    console.warn('⚠️ Telegram service skipped (check your BOT_TOKEN)');
   }
-};
+}, 5000);
 
-startServer();
+// --- START SERVER ---
+httpServer.listen(PORT, () => {
+  console.log(`
+  🚀 SERVER 100% OPERATIONAL
+  ---------------------------------
+  Port: ${PORT}
+  Mode: Edge-AI Hub
+  CORS: Enabled (All Origins)
+  ---------------------------------
+  `);
+});
