@@ -1,81 +1,63 @@
-import 'dotenv/config'; // Shorthand for import + config()
+import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import connectDB from './config/database';
 
-// Routes
+// Import existing routes
 import visionRoutes from './routes/visionRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
 import alertRoutes from './routes/alertRoutes';
 import authRoutes from './routes/authRoutes';
-import { setupLiveRoutes } from './routes/liveRoutes';
-
-// The Troubleshooting Import
-// If this still fails, try renaming the actual file to 'cam-routes.ts' 
-// and updating the string below to match.
-const cameraRoutes = require('./routes/cameraRoutes').default;
-
-// Services
-import connectDB from './config/database';
-import { rtspProxy } from './services/rtspProxy';
 
 const app = express();
-const PORT = process.env.PORT || 10000; // Use 10000 for Render compatibility
-
+const PORT = process.env.PORT || 10000;
 const httpServer = createServer(app);
 
-// Socket.io Setup
+// 1. Optimized Socket Setup
 const io = new Server(httpServer, {
-  cors: {
-    origin: '*', // Set to '*' for easier testing on Render
-    methods: ['GET', 'POST']
-  }
+  cors: { origin: '*', methods: ['GET', 'POST'] }
 });
 
-// Initialize Services
-rtspProxy.initialize(io);
-setupLiveRoutes(io);
+// 2. The "Smart" Alert Listener (Zero CPU Overhead)
+io.on('connection', (socket) => {
+  console.log(`📡 New Client Connected: ${socket.id}`);
+
+  // Listen for the Edge-AI alarm trigger
+  socket.on('alarm-trigger', (alertData) => {
+    console.log(`🚨 ALARM: ${alertData.label} at ${alertData.timestamp}`);
+    
+    // Broadcast to all other connected clients (Security Dashboard)
+    socket.broadcast.emit('broadcast-alarm', alertData);
+    
+    // INTEGRATION POINT: Add Telegram or Email notification here
+    // Example: TelegramBot.sendMessage(`Movement detected: ${alertData.label}`);
+  });
+
+  socket.on('disconnect', () => console.log('🔌 Client Disconnected'));
+});
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Base Route
+// Routes
 app.get('/', (req: Request, res: Response) => {
-  res.json({ 
-    status: 'online',
-    message: 'AI Vision Platform Backend is running!' 
-  });
+  res.json({ status: 'online', mode: 'Edge-AI Hub' });
 });
 
-// Route Definitions
 app.use('/api/vision', visionRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/alerts', alertRoutes);
-app.use('/api/cameras', cameraRoutes);
 app.use('/api/auth', authRoutes);
 
 // Server Startup
 httpServer.listen(PORT, async () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  
-  // Database Connection
+  console.log(`✅ Edge-AI Hub running on port ${PORT}`);
   try {
     await connectDB();
-  } catch (dbError) {
-    console.error('❌ Database connection failed during startup');
+  } catch (err) {
+    console.error('❌ DB Connection failed');
   }
-
-  // Telegram Bot Initialization (Delayed to ensure DB is ready)
-  setTimeout(() => {
-    try {
-      const { IntelligentTelegramBot } = require('./services/IntelligentTelegramBot');
-      if (IntelligentTelegramBot && typeof IntelligentTelegramBot.initialize === 'function') {
-        IntelligentTelegramBot.initialize();
-      }
-    } catch (error: any) {
-      console.error('❌ Telegram Bot failed to initialize:', error.message);
-    }
-  }, 3000);
 });
