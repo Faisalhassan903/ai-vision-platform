@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
-import { MAIN_BACKEND_URL, SOCKET_URL }
+import { MAIN_BACKEND_URL, SOCKET_URL, API_BASE_URL } from '../config'; // Added missing path and API_BASE_URL
 
 interface Alert {
   _id: string;
@@ -25,11 +25,12 @@ export function useAlerts() {
   // Fetch alerts from API
   const fetchAlerts = useCallback(async () => {
     try {
-      // Updated to use API_BASE_URL
+      // Use MAIN_BACKEND_URL to ensure we hit the DB, not the AI service
       const response = await axios.get(`${MAIN_BACKEND_URL}/api/alerts?limit=50`);
-      setAlerts(response.data.alerts);
+      const alertsData = response.data.alerts || [];
+      setAlerts(alertsData);
       
-      const unread = response.data.alerts.filter((a: Alert) => !a.acknowledged).length;
+      const unread = alertsData.filter((a: Alert) => !a.acknowledged).length;
       setUnreadCount(unread);
     } catch (error) {
       console.error('Error fetching alerts:', error);
@@ -39,13 +40,12 @@ export function useAlerts() {
   // Acknowledge alert
   const acknowledgeAlert = useCallback(async (alertId: string, notes?: string) => {
     try {
-      // Updated to use API_BASE_URL
+      // Use API_BASE_URL (which should point to MAIN_BACKEND in config)
       await axios.post(`${API_BASE_URL}/api/alerts/${alertId}/acknowledge`, {
         user: 'Current User',
         notes: notes
       });
       
-      // Update local state
       setAlerts(prev => prev.map(alert => 
         alert._id === alertId 
           ? { ...alert, acknowledged: true }
@@ -60,7 +60,6 @@ export function useAlerts() {
 
   // Connect to Socket.io for real-time alerts
   useEffect(() => {
-    // Updated to use SOCKET_URL
     const newSocket = io(SOCKET_URL);
     
     newSocket.on('connect', () => {
@@ -74,10 +73,12 @@ export function useAlerts() {
         playAlertSound();
       }
       
-      setAlerts(prev => [data.alert, ...prev]);
+      // Handle the case where the socket data might be nested differently
+      const newAlert = data.alert || data;
+      setAlerts(prev => [newAlert, ...prev]);
       setUnreadCount(prev => prev + 1);
       
-      showBrowserNotification(data.alert);
+      showBrowserNotification(newAlert);
     });
 
     setSocket(newSocket);
@@ -87,7 +88,6 @@ export function useAlerts() {
     };
   }, []);
 
-  // Initial fetch
   useEffect(() => {
     fetchAlerts();
   }, [fetchAlerts]);
@@ -100,32 +100,32 @@ export function useAlerts() {
   };
 }
 
-// Play alert sound
+// Helper functions (Sound and Notifications)
 function playAlertSound() {
-  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-  const oscillator = audioContext.createOscillator();
-  const gainNode = audioContext.createGain();
+  try {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
 
-  oscillator.connect(gainNode);
-  gainNode.connect(audioContext.destination);
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    oscillator.frequency.value = 800;
+    oscillator.type = 'sine';
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
 
-  oscillator.frequency.value = 800;
-  oscillator.type = 'sine';
-
-  gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-
-  oscillator.start(audioContext.currentTime);
-  oscillator.stop(audioContext.currentTime + 0.5);
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.5);
+  } catch (e) {
+    console.warn("Audio context failed to start:", e);
+  }
 }
 
-// Show browser notification
 function showBrowserNotification(alert: Alert) {
   if ('Notification' in window && Notification.permission === 'granted') {
     new Notification(`${getPriorityEmoji(alert.priority)} ${alert.ruleName}`, {
       body: alert.message,
-      icon: '/favicon.ico',
-      badge: '/favicon.ico'
+      icon: '/favicon.ico'
     });
   }
 }
