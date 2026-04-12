@@ -2,8 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 
-// FIX: Path adjusted to match your 'src/components/ui' structure
-import { Button, StatCard } from '../components/ui'; 
+import { Button } from '../components/ui'; 
 import { useAlerts } from '../hooks/useAlerts';
 
 const LiveCamera = () => {
@@ -12,6 +11,10 @@ const LiveCamera = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
   const requestRef = useRef<number>();
+  
+  // NEW: Cooldown prevents sending 60 alerts per second
+  const lastAlertTimeRef = useRef<number>(0);
+  const ALERT_COOLDOWN = 5000; // 5 seconds between alerts
 
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState('OFFLINE');
@@ -25,23 +28,33 @@ const LiveCamera = () => {
       const ctx = canvasRef.current?.getContext('2d');
 
       if (ctx && canvasRef.current) {
+        // Sync canvas size to video size
+        canvasRef.current.width = videoRef.current.videoWidth;
+        canvasRef.current.height = videoRef.current.videoHeight;
+
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
         predictions.forEach(p => {
           const [x, y, w, h] = p.bbox;
           ctx.strokeStyle = '#00FF41';
+          ctx.lineWidth = 2;
           ctx.strokeRect(x, y, w, h);
         });
 
         // Trigger logic
         const person = predictions.find(p => p.class === 'person' && p.score > 0.7);
-        if (person) {
+        const now = Date.now();
+
+        // FIX: Only trigger if the cooldown has passed
+        if (person && (now - lastAlertTimeRef.current > ALERT_COOLDOWN)) {
+          lastAlertTimeRef.current = now; // Update the cooldown timestamp
+          
           triggerNewAlert({
             ruleName: "Motion Detection",
             priority: 'critical',
             message: "Person detected",
             timestamp: new Date().toISOString(),
             detections: [{ class: 'person', confidence: person.score }]
-          });
+          }).catch(err => console.error("Alert failed to send:", err));
         }
       }
     } finally {
@@ -63,6 +76,7 @@ const LiveCamera = () => {
       setIsActive(true);
       setStatus('LIVE');
     } catch (e) {
+      console.error(e);
       setStatus('CAM_ERROR');
     }
   };
@@ -74,13 +88,24 @@ const LiveCamera = () => {
 
   return (
     <div className="p-4 bg-black min-h-screen text-[#00FF41] font-mono">
-      <div className="flex justify-between mb-4">
-        <h2>SENTRY_CORE // {status}</h2>
-        <Button onClick={startEngine}>INITIALIZE</Button>
+      <div className="flex justify-between mb-4 items-center">
+        <h2 className="text-xl">SENTRY_CORE // <span className={status === 'LIVE' ? 'animate-pulse' : ''}>{status}</span></h2>
+        <Button onClick={startEngine} disabled={isActive}>
+          {isActive ? 'SYSTEM_ACTIVE' : 'INITIALIZE'}
+        </Button>
       </div>
-      <div className="relative aspect-video border border-[#00FF41]/20">
-        <video ref={videoRef} className="w-full h-full opacity-40" autoPlay muted playsInline />
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+      <div className="relative aspect-video border border-[#00FF41]/20 rounded-lg overflow-hidden bg-zinc-900">
+        <video 
+          ref={videoRef} 
+          className="absolute inset-0 w-full h-full object-cover opacity-60" 
+          autoPlay 
+          muted 
+          playsInline 
+        />
+        <canvas 
+          ref={canvasRef} 
+          className="absolute inset-0 w-full h-full pointer-events-none" 
+        />
       </div>
     </div>
   );
