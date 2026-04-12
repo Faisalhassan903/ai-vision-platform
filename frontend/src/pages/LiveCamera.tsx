@@ -1,167 +1,212 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as tf from '@tensorflow/tfjs';
+import '@tensorflow/tfjs-backend-wasm'; // High-performance fallback
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
-import { Button } from '../components/ui'; 
+import { Button } from '../components/ui';
 import { useAlerts } from '../hooks/useAlerts';
 
-const LiveCamera = () => {
+// Constants for tuning
+const DETECTION_INTERVAL = 4; // Run AI every 4th frame
+const ALERT_THRESHOLD = 0.75;
+const COOLDOWN_MS = 10000; 
+
+const LiveCamera: React.FC = () => {
   const { triggerNewAlert } = useAlerts();
   
-  // Refs for persistent state without re-renders
+  // DOM Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  // Logic Refs
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
-  const requestRef = useRef<number>();
-  
-  // Optimization Refs
-  const lastAlertTimeRef = useRef<number>(0);
-  const frameCountRef = useRef<number>(0);
-  
-  const [status, setStatus] = useState<'OFFLINE' | 'LOADING' | 'LIVE' | 'ERROR'>('OFFLINE');
-  const [isActive, setIsActive] = useState(false);
+  const rafRef = useRef<number>();
+  const lastAlertRef = useRef<number>(0);
+  const frameCounter = useRef<number>(0);
 
-  const detectFrame = useCallback(async () => {
-    if (!isActive || !videoRef.current || !modelRef.current) return;
+  // State
+  const [isLive, setIsLive] = useState(false);
+  const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'active' | 'error'>('idle');
+  const [debugInfo, setDebugInfo] = useState({ fps: 0, backend: '' });
 
-    // 1. PERFORMANCE THROTTLE
-    // Only run AI detection every 4th frame (~15 FPS)
-    // This reduces GPU usage by 75% compared to 60 FPS
-    frameCountRef.current++;
-    if (frameCountRef.current % 4 !== 0) {
-      requestRef.current = requestAnimationFrame(detectFrame);
+  /**
+   * Main Inference Loop
+   */
+  const runDetection = useCallback(async () => {
+    if (!isLive || !videoRef.current || !modelRef.current) return;
+
+    // Optimization: Skip frames to save GPU/CPU energy
+    frameCounter.current++;
+    if (frameCounter.current % DETECTION_INTERVAL !== 0) {
+      rafRef.current = requestAnimationFrame(runDetection);
       return;
     }
 
-    // 2. MEMORY MANAGEMENT
-    tf.engine().startScope(); 
-    
+    tf.engine().startScope();
     try {
-      const predictions = await modelRef.current.detect(videoRef.current, 5, 0.6);
+      const predictions = await modelRef.current.detect(videoRef.current, 5, 0.5);
+      
       const ctx = canvasRef.current?.getContext('2d');
-
       if (ctx && canvasRef.current && videoRef.current) {
-        // Match canvas size to video stream exactly
-        if (canvasRef.current.width !== videoRef.current.videoWidth) {
-          canvasRef.current.width = videoRef.current.videoWidth;
-          canvasRef.current.height = videoRef.current.videoHeight;
-        }
-
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        // Auto-sync canvas resolution
+        canvasRef.current.width = videoRef.current.videoWidth;
+        canvasRef.current.height = videoRef.current.videoHeight;
         
-        predictions.forEach(p => {
-          const [x, y, w, h] = p.bbox;
-          ctx.strokeStyle = '#00FF41';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(x, y, w, h);
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+        predictions.forEach(prediction => {
+          const [x, y, width, height] = prediction.bbox;
           
-          ctx.fillStyle = '#00FF41';
-          ctx.fillText(`${p.class} (${Math.round(p.score * 100)}%)`, x, y > 10 ? y - 5 : 10);
+          // Draw bounding box
+          ctx.strokeStyle = '#22c55e'; // Tailwind green-500
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x, y, width, height);
+
+          // Draw Label
+          ctx.fillStyle = '#22c55e';
+          ctx.font = '12px Inter, sans-serif';
+          ctx.fillText(
+            `${prediction.class.toUpperCase()} ${Math.round(prediction.score * 100)}%`,
+            x, y > 15 ? y - 5 : 15
+          );
         });
 
-        // 3. INTELLIGENT ALERTING (Rate-Limited to 1 per 10s)
-        const person = predictions.find(p => p.class === 'person' && p.score > 0.75);
+        // Business Logic: Alerting
+        const person = predictions.find(p => p.class === 'person' && p.score > ALERT_THRESHOLD);
         const now = Date.now();
-        
-        if (person && (now - lastAlertTimeRef.current > 10000)) {
-          lastAlertTimeRef.current = now;
+
+        if (person && (now - lastAlertRef.current > COOLDOWN_MS)) {
+          lastAlertRef.current = now;
           triggerNewAlert({
-            ruleName: "AI_HUMAN_DETECTION",
+            ruleName: "HUMAN_PRESENCE_DETECTED",
             priority: 'critical',
-            message: "Unauthorized entry detected",
+            message: `Person detected with ${Math.round(person.score * 100)}% confidence`,
             timestamp: new Date().toISOString(),
             detections: [{ class: 'person', confidence: person.score }]
-          }).catch(() => console.warn("Network: Alert dropped due to congestion"));
+          }).catch(() => console.warn("Network: Alert dispatch failed."));
         }
       }
     } catch (err) {
       console.error("Inference Error:", err);
-      // Stop loop if GPU crashes
       if (err instanceof Error && err.message.includes('lost')) {
-        setIsActive(false);
-        setStatus('ERROR');
+        setInitStatus('error');
+        setIsLive(false);
       }
     } finally {
-      tf.engine().endScope(); // CRITICAL: Dispose tensors
-      if (isActive) requestRef.current = requestAnimationFrame(detectFrame);
+      tf.engine().endScope();
+      if (isLive) rafRef.current = requestAnimationFrame(runDetection);
     }
-  }, [isActive, triggerNewAlert]);
+  }, [isLive, triggerNewAlert]);
 
-  const startEngine = async () => {
+  /**
+   * System Initializer
+   */
+  const initializeSystem = async () => {
     try {
-      setStatus('LOADING');
-      
-      // Ensure WebGL is ready
+      setInitStatus('loading');
+
+      // 1. Backend Selection: Try Wasm first for stability
+      // If Wasm fails, it defaults to CPU/WebGL safely
+      await tf.setBackend('wasm').catch(() => tf.setBackend('cpu'));
       await tf.ready();
       
-      const [model, stream] = await Promise.all([
-        cocoSsd.load({ base: 'lite_mobilenet_v2' }), // Use 'lite' for production speed
+      setDebugInfo(prev => ({ ...prev, backend: tf.getBackend() }));
+
+      // 2. Load Model & Stream
+      const [loadedModel, stream] = await Promise.all([
+        cocoSsd.load({ base: 'lite_mobilenet_v2' }),
         navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment', width: 640, height: 480 } 
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } 
         })
       ]);
 
-      modelRef.current = model;
+      modelRef.current = loadedModel;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Wait for video metadata to load before starting detection
         videoRef.current.onloadedmetadata = () => {
-          setIsActive(true);
-          setStatus('LIVE');
+          setIsLive(true);
+          setInitStatus('active');
         };
       }
-    } catch (e) {
-      console.error("Initialization Error:", e);
-      setStatus('ERROR');
+    } catch (error) {
+      console.error("System Boot Failure:", error);
+      setInitStatus('error');
     }
   };
 
   useEffect(() => {
-    if (isActive) {
-      requestRef.current = requestAnimationFrame(detectFrame);
-    }
+    if (isLive) rafRef.current = requestAnimationFrame(runDetection);
     return () => {
-      if (requestRef.current) cancelAnimationFrame(requestRef.current);
-      // Cleanup stream on unmount
-      if (videoRef.current?.srcObject) {
-        (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-      }
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [isActive, detectFrame]);
+  }, [isLive, runDetection]);
 
   return (
-    <div className="flex flex-col gap-4 p-6 bg-zinc-950 rounded-xl border border-zinc-800 font-mono">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`w-3 h-3 rounded-full ${status === 'LIVE' ? 'bg-red-500 animate-pulse' : 'bg-zinc-700'}`} />
-          <h2 className="text-zinc-100 text-sm tracking-widest">SENTRY // {status}</h2>
+    <div className="max-w-6xl mx-auto p-6 space-y-4">
+      {/* Header Panel */}
+      <div className="flex items-center justify-between bg-white border border-slate-200 p-4 rounded-lg shadow-sm">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-900">Vision Node 01</h1>
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`} />
+            <p className="text-xs text-slate-500 uppercase font-medium">System Status: {initStatus}</p>
+          </div>
         </div>
-        <Button 
-          onClick={startEngine} 
-          disabled={status === 'LIVE' || status === 'LOADING'}
-          className="bg-zinc-100 text-black hover:bg-[#00FF41] transition-colors"
-        >
-          {status === 'OFFLINE' ? 'BOOT_SYSTEM' : 'SYSTEM_RUNNING'}
-        </Button>
+        
+        <div className="flex items-center gap-4">
+          <div className="text-right hidden sm:block">
+            <p className="text-[10px] text-slate-400 uppercase">Backend Engine</p>
+            <p className="text-xs font-mono font-bold text-slate-700">{debugInfo.backend || '---'}</p>
+          </div>
+          <Button 
+            onClick={initializeSystem}
+            disabled={initStatus === 'loading' || initStatus === 'active'}
+            variant={initStatus === 'error' ? 'destructive' : 'default'}
+          >
+            {initStatus === 'active' ? 'Monitoring Active' : 'Initialize System'}
+          </Button>
+        </div>
       </div>
 
-      <div className="relative overflow-hidden rounded-lg bg-black aspect-video border border-zinc-800 shadow-2xl">
+      {/* Main Viewport */}
+      <div className="relative rounded-xl overflow-hidden bg-slate-900 border border-slate-800 aspect-video shadow-inner">
         <video 
           ref={videoRef} 
-          className="w-full h-full object-cover opacity-80" 
+          className="absolute inset-0 w-full h-full object-cover"
           autoPlay 
           muted 
           playsInline 
         />
         <canvas 
           ref={canvasRef} 
-          className="absolute inset-0 w-full h-full pointer-events-none" 
+          className="absolute inset-0 w-full h-full"
         />
         
-        {status === 'LOADING' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <span className="text-[#00FF41] text-xs animate-pulse">DOWNLOADING_WEIGHTS...</span>
+        {initStatus === 'idle' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80">
+            <p className="text-slate-400 text-sm">Waiting for system initialization...</p>
           </div>
         )}
+        
+        {initStatus === 'loading' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80">
+            <div className="text-center space-y-3">
+              <div className="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-white text-sm">Downloading Neural Weights...</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer / Debug Overlay */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+          <p className="text-[10px] text-slate-400 uppercase">Detection Logic</p>
+          <p className="text-sm font-semibold text-slate-700">MobileNet V2 (Lite)</p>
+        </div>
+        <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+          <p className="text-[10px] text-slate-400 uppercase">Input Stream</p>
+          <p className="text-sm font-semibold text-slate-700">720p @ 30fps</p>
+        </div>
       </div>
     </div>
   );
