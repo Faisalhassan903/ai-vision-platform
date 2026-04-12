@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-// 1. IMPORT API_BASE_URL
-import { API_BASE_URL } from '../config'; 
+// 1. IMPORT MAIN_BACKEND_URL INSTEAD OF API_BASE_URL
+import { MAIN_BACKEND_URL } from '../config'; 
 
 interface RuleBuilderProps {
   rule?: any;
@@ -93,12 +93,12 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
         cooldownMinutes: cooldownMinutes
       };
 
-      // 2. USE API_BASE_URL FOR POST/PUT
+      // 2. UPDATED TO USE MAIN_BACKEND_URL
       if (rule) {
-        await axios.put(`${API_BASE_URL}/api/alerts/rules/${rule._id}`, payload);
+        await axios.put(`${MAIN_BACKEND_URL}/api/alerts/rules/${rule._id}`, payload);
         alert('✅ Rule updated successfully!');
       } else {
-        await axios.post(`${API_BASE_URL}/api/alerts/rules`, payload);
+        await axios.post(`${MAIN_BACKEND_URL}/api/alerts/rules`, payload);
         alert('✅ Rule created successfully!');
       }
 
@@ -120,53 +120,53 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl">
-        <div className="p-6">
+    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-slate-900 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-700">
+        <div className="p-8">
           
-          <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-700">
+          <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-800">
             <h2 className="text-3xl font-bold text-white">
-              {rule ? '✏️ Edit Alert Rule' : '➕ Create New Alert Rule'}
+              {rule ? '✏️ Modify Security Logic' : '➕ New Detection Rule'}
             </h2>
             <button 
               onClick={onClose}
-              className="text-gray-400 hover:text-white text-3xl font-bold leading-none transition"
+              className="text-gray-500 hover:text-white transition-colors"
             >
-              ✕
+              <span className="text-3xl">✕</span>
             </button>
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-8">
             
             {/* Rule Name */}
-            <div>
-              <label className="block text-white text-sm font-bold mb-2">
-                Rule Name <span className="text-red-500">*</span>
+            <div className="bg-slate-950 p-6 rounded-xl border border-slate-800">
+              <label className="block text-blue-400 text-xs font-bold uppercase tracking-widest mb-2">
+                Identifier Name
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., Person Detection Alert"
-                className="w-full bg-slate-700 text-white border-2 border-slate-600 rounded-lg px-4 py-3 text-base focus:outline-none focus:border-blue-500 transition"
+                placeholder="e.g., Perimeter Intrusion"
+                className="w-full bg-slate-900 text-white border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition"
               />
             </div>
 
             {/* Priority Level */}
             <div>
-              <label className="block text-white text-sm font-bold mb-3">
-                Priority Level <span className="text-red-500">*</span>
-              </label>
-              <div className="grid grid-cols-3 gap-3">
+              <label className="block text-gray-400 text-xs font-bold uppercase tracking-widest mb-4">Severity Tier</label>
+              <div className="grid grid-cols-3 gap-4">
                 {(['info', 'warning', 'critical'] as const).map((p) => (
                   <button
                     key={p}
                     type="button"
                     onClick={() => setPriority(p)}
-                    className={`py-4 rounded-lg font-bold text-lg transition-all ${
+                    className={`py-3 rounded-lg font-bold transition-all border-2 ${
                       priority === p 
-                        ? `${p === 'info' ? 'bg-blue-600' : p === 'warning' ? 'bg-yellow-600' : 'bg-red-600'} text-white shadow-lg transform scale-105` 
-                        : 'bg-slate-700 text-gray-300 hover:bg-slate-600'
+                        ? p === 'info' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 
+                          p === 'warning' ? 'bg-yellow-600/20 border-yellow-500 text-yellow-400' : 
+                          'bg-red-600/20 border-red-500 text-red-400'
+                        : 'bg-slate-950 border-slate-800 text-gray-500 hover:border-slate-600'
                     }`}
                   >
                     {p.toUpperCase()}
@@ -177,21 +177,20 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
 
             {/* Detect Objects */}
             <div>
-              <label className="block text-white text-sm font-bold mb-2">
-                Detect Objects <span className="text-red-500">*</span>
-                <span className="ml-2 text-blue-400">({objectClasses.length} selected)</span>
+              <label className="block text-gray-400 text-xs font-bold uppercase tracking-widest mb-4">
+                Target Classes ({objectClasses.length} active)
               </label>
-              <div className="bg-slate-700 border-2 border-slate-600 rounded-lg p-4 max-h-64 overflow-y-auto custom-scrollbar">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 max-h-64 overflow-y-auto">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {OBJECT_CLASSES.map(obj => (
                     <button
                       key={obj}
                       type="button"
                       onClick={() => toggleObject(obj)}
-                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      className={`px-3 py-2 rounded-md text-xs font-semibold transition-all ${
                         objectClasses.includes(obj) 
-                          ? 'bg-blue-600 text-white shadow-md' 
-                          : 'bg-slate-600 text-gray-300 hover:bg-slate-500'
+                          ? 'bg-emerald-600 text-white' 
+                          : 'bg-slate-900 text-gray-500 hover:text-gray-300 border border-slate-800'
                       }`}
                     >
                       {obj}
@@ -202,10 +201,11 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
             </div>
 
             {/* Minimum Confidence */}
-            <div>
-              <label className="block text-white text-sm font-bold mb-2">
-                Minimum Confidence: <span className="text-blue-400">{(minConfidence * 100).toFixed(0)}%</span>
-              </label>
+            <div className="bg-slate-950 p-6 rounded-xl border border-slate-800">
+              <div className="flex justify-between mb-4">
+                <label className="text-gray-400 text-xs font-bold uppercase tracking-widest">Model Sensitivity</label>
+                <span className="text-blue-400 font-mono">{(minConfidence * 100).toFixed(0)}%</span>
+              </div>
               <input
                 type="range"
                 min="0"
@@ -213,42 +213,35 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
                 step="0.05"
                 value={minConfidence}
                 onChange={(e) => setMinConfidence(parseFloat(e.target.value))}
-                className="w-full h-3 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
             </div>
 
             {/* Alert Actions */}
-            <div>
-              <label className="block text-white text-sm font-bold mb-3">Alert Actions</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-700 p-4 rounded-lg border-2 border-slate-600">
-                <Checkbox label="🔔 Browser Notification" checked={notificationEnabled} onChange={setNotificationEnabled} />
-                <Checkbox label="🔊 Audio Alert" checked={audioEnabled} onChange={setAudioEnabled} />
-                <Checkbox label="💬 Discord Notification" checked={discordEnabled} onChange={setDiscordEnabled} />
-                <Checkbox label="📸 Save Snapshot" checked={saveSnapshot} onChange={setSaveSnapshot} />
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Checkbox label="🔔 Push Notification" checked={notificationEnabled} onChange={setNotificationEnabled} />
+              <Checkbox label="🔊 Audible Alarm" checked={audioEnabled} onChange={setAudioEnabled} />
+              <Checkbox label="💬 Discord Webhook" checked={discordEnabled} onChange={setDiscordEnabled} />
+              <Checkbox label="📸 Save Event Snapshot" checked={saveSnapshot} onChange={setSaveSnapshot} />
             </div>
 
           </div>
 
           {/* Action Buttons */}
-          <div className="flex gap-4 mt-8 pt-6 border-t border-slate-700">
+          <div className="flex gap-4 mt-12 pt-6 border-t border-slate-800">
             <button
               type="button"
               onClick={handleSubmit}
               disabled={isSaving}
-              className={`flex-1 py-4 rounded-lg font-bold text-lg transition-all ${
-                isSaving 
-                  ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
-                  : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl transform hover:scale-105'
-              }`}
+              className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-lg shadow-lg transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50"
             >
-              {isSaving ? '⏳ Saving...' : rule ? '💾 Update Rule' : '➕ Create Rule'}
+              {isSaving ? 'Synchronizing...' : rule ? 'Update Rule' : 'Deploy Rule'}
             </button>
             <button
               type="button"
               onClick={onClose}
               disabled={isSaving}
-              className="px-8 py-4 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-bold text-lg transition-all"
+              className="px-8 py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold transition-colors"
             >
               Cancel
             </button>
@@ -259,16 +252,15 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
   );
 }
 
-// Small helper component for cleaner JSX
 const Checkbox = ({ label, checked, onChange }: { label: string, checked: boolean, onChange: (v: boolean) => void }) => (
-  <label className="flex items-center gap-3 text-white cursor-pointer hover:bg-slate-600 p-2 rounded transition">
+  <label className="flex items-center gap-3 bg-slate-950 border border-slate-800 p-4 rounded-xl cursor-pointer hover:border-slate-600 transition-all">
     <input
       type="checkbox"
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
       className="w-5 h-5 rounded accent-blue-500"
     />
-    <span className="font-medium">{label}</span>
+    <span className="text-sm font-semibold text-gray-300">{label}</span>
   </label>
 );
 
