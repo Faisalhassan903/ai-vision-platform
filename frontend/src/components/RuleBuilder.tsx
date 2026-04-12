@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+// 1. IMPORT API_BASE_URL
+import { API_BASE_URL } from '../config'; 
 
 interface RuleBuilderProps {
   rule?: any;
@@ -56,7 +58,6 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
   }, [rule]);
 
   const handleSubmit = async () => {
-    // Validation
     if (!name.trim()) {
       alert('❌ Please enter a rule name');
       return;
@@ -92,16 +93,12 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
         cooldownMinutes: cooldownMinutes
       };
 
-      console.log('📤 Submitting rule:', payload);
-
-      let response;
+      // 2. USE API_BASE_URL FOR POST/PUT
       if (rule) {
-        response = await axios.put(`http://localhost:5000/api/alerts/rules/${rule._id}`, payload);
-        console.log('✅ Rule updated:', response.data);
+        await axios.put(`${API_BASE_URL}/api/alerts/rules/${rule._id}`, payload);
         alert('✅ Rule updated successfully!');
       } else {
-        response = await axios.post('http://localhost:5000/api/alerts/rules', payload);
-        console.log('✅ Rule created:', response.data);
+        await axios.post(`${API_BASE_URL}/api/alerts/rules`, payload);
         alert('✅ Rule created successfully!');
       }
 
@@ -124,17 +121,16 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-slate-800 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl">
         <div className="p-6">
           
-          {/* Header */}
           <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-700">
             <h2 className="text-3xl font-bold text-white">
               {rule ? '✏️ Edit Alert Rule' : '➕ Create New Alert Rule'}
             </h2>
             <button 
               onClick={onClose}
-              className="text-gray-400 hover:text-white text-3xl font-bold leading-none"
+              className="text-gray-400 hover:text-white text-3xl font-bold leading-none transition"
             >
               ✕
             </button>
@@ -152,21 +148,7 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g., Person Detection Alert"
-                className="w-full bg-slate-700 text-white border-2 border-slate-600 rounded-lg px-4 py-3 text-base focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            {/* Description */}
-            <div>
-              <label className="block text-white text-sm font-bold mb-2">
-                Description
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe when this alert should trigger..."
-                rows={3}
-                className="w-full bg-slate-700 text-white border-2 border-slate-600 rounded-lg px-4 py-3 text-base focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-700 text-white border-2 border-slate-600 rounded-lg px-4 py-3 text-base focus:outline-none focus:border-blue-500 transition"
               />
             </div>
 
@@ -176,39 +158,20 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
                 Priority Level <span className="text-red-500">*</span>
               </label>
               <div className="grid grid-cols-3 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setPriority('info')}
-                  className={`py-4 rounded-lg font-bold text-lg transition-all ${
-                    priority === 'info' 
-                      ? 'bg-blue-600 text-white shadow-lg transform scale-105' 
-                      : 'bg-slate-700 text-gray-300 hover:bg-slate-600'
-                  }`}
-                >
-                  ℹ️ INFO
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPriority('warning')}
-                  className={`py-4 rounded-lg font-bold text-lg transition-all ${
-                    priority === 'warning' 
-                      ? 'bg-yellow-600 text-white shadow-lg transform scale-105' 
-                      : 'bg-slate-700 text-gray-300 hover:bg-slate-600'
-                  }`}
-                >
-                  ⚠️ WARNING
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPriority('critical')}
-                  className={`py-4 rounded-lg font-bold text-lg transition-all ${
-                    priority === 'critical' 
-                      ? 'bg-red-600 text-white shadow-lg transform scale-105' 
-                      : 'bg-slate-700 text-gray-300 hover:bg-slate-600'
-                  }`}
-                >
-                  🔴 CRITICAL
-                </button>
+                {(['info', 'warning', 'critical'] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPriority(p)}
+                    className={`py-4 rounded-lg font-bold text-lg transition-all ${
+                      priority === p 
+                        ? `${p === 'info' ? 'bg-blue-600' : p === 'warning' ? 'bg-yellow-600' : 'bg-red-600'} text-white shadow-lg transform scale-105` 
+                        : 'bg-slate-700 text-gray-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    {p.toUpperCase()}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -218,8 +181,8 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
                 Detect Objects <span className="text-red-500">*</span>
                 <span className="ml-2 text-blue-400">({objectClasses.length} selected)</span>
               </label>
-              <div className="bg-slate-700 border-2 border-slate-600 rounded-lg p-4 max-h-64 overflow-y-auto">
-                <div className="grid grid-cols-3 gap-2">
+              <div className="bg-slate-700 border-2 border-slate-600 rounded-lg p-4 max-h-64 overflow-y-auto custom-scrollbar">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {OBJECT_CLASSES.map(obj => (
                     <button
                       key={obj}
@@ -250,113 +213,19 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
                 step="0.05"
                 value={minConfidence}
                 onChange={(e) => setMinConfidence(parseFloat(e.target.value))}
-                className="w-full h-3 bg-slate-600 rounded-lg appearance-none cursor-pointer"
+                className="w-full h-3 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
-              <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>0%</span>
-                <span>50%</span>
-                <span>100%</span>
-              </div>
-            </div>
-
-            {/* Time Range */}
-            <div>
-              <label className="flex items-center gap-3 text-white mb-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={timeRangeEnabled}
-                  onChange={(e) => setTimeRangeEnabled(e.target.checked)}
-                  className="w-5 h-5 rounded"
-                />
-                <span className="font-bold">Only alert during specific times</span>
-              </label>
-              
-              {timeRangeEnabled && (
-                <div className="grid grid-cols-2 gap-4 ml-8">
-                  <div>
-                    <label className="block text-sm text-gray-300 mb-1">Start Time</label>
-                    <input
-                      type="time"
-                      value={timeStart}
-                      onChange={(e) => setTimeStart(e.target.value)}
-                      className="w-full bg-slate-700 text-white border-2 border-slate-600 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-gray-300 mb-1">End Time</label>
-                    <input
-                      type="time"
-                      value={timeEnd}
-                      onChange={(e) => setTimeEnd(e.target.value)}
-                      className="w-full bg-slate-700 text-white border-2 border-slate-600 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Alert Actions */}
             <div>
               <label className="block text-white text-sm font-bold mb-3">Alert Actions</label>
-              <div className="space-y-3 bg-slate-700 p-4 rounded-lg border-2 border-slate-600">
-                <label className="flex items-center gap-3 text-white cursor-pointer hover:bg-slate-600 p-2 rounded">
-                  <input
-                    type="checkbox"
-                    checked={notificationEnabled}
-                    onChange={(e) => setNotificationEnabled(e.target.checked)}
-                    className="w-5 h-5 rounded"
-                  />
-                  <span className="font-medium">🔔 Browser Notification</span>
-                </label>
-
-                <label className="flex items-center gap-3 text-white cursor-pointer hover:bg-slate-600 p-2 rounded">
-                  <input
-                    type="checkbox"
-                    checked={audioEnabled}
-                    onChange={(e) => setAudioEnabled(e.target.checked)}
-                    className="w-5 h-5 rounded"
-                  />
-                  <span className="font-medium">🔊 Audio Alert (Alarm Sound)</span>
-                </label>
-
-                <label className="flex items-center gap-3 text-white cursor-pointer hover:bg-slate-600 p-2 rounded">
-                  <input
-                    type="checkbox"
-                    checked={discordEnabled}
-                    onChange={(e) => setDiscordEnabled(e.target.checked)}
-                    className="w-5 h-5 rounded"
-                  />
-                  <span className="font-medium">💬 Discord Notification</span>
-                </label>
-
-                <label className="flex items-center gap-3 text-white cursor-pointer hover:bg-slate-600 p-2 rounded">
-                  <input
-                    type="checkbox"
-                    checked={saveSnapshot}
-                    onChange={(e) => setSaveSnapshot(e.target.checked)}
-                    className="w-5 h-5 rounded"
-                  />
-                  <span className="font-medium">📸 Save Snapshot</span>
-                </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-700 p-4 rounded-lg border-2 border-slate-600">
+                <Checkbox label="🔔 Browser Notification" checked={notificationEnabled} onChange={setNotificationEnabled} />
+                <Checkbox label="🔊 Audio Alert" checked={audioEnabled} onChange={setAudioEnabled} />
+                <Checkbox label="💬 Discord Notification" checked={discordEnabled} onChange={setDiscordEnabled} />
+                <Checkbox label="📸 Save Snapshot" checked={saveSnapshot} onChange={setSaveSnapshot} />
               </div>
-            </div>
-
-            {/* Cooldown Period */}
-            <div>
-              <label className="block text-white text-sm font-bold mb-2">
-                Cooldown Period: <span className="text-blue-400">{cooldownMinutes} minute{cooldownMinutes !== 1 ? 's' : ''}</span>
-              </label>
-              <input
-                type="number"
-                value={cooldownMinutes}
-                onChange={(e) => setCooldownMinutes(Math.max(1, parseInt(e.target.value) || 1))}
-                min="1"
-                max="60"
-                className="w-full bg-slate-700 text-white border-2 border-slate-600 rounded-lg px-4 py-3 text-base"
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                Minimum time between repeated alerts for the same rule
-              </p>
             </div>
 
           </div>
@@ -384,11 +253,23 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
               Cancel
             </button>
           </div>
-
         </div>
       </div>
     </div>
   );
 }
+
+// Small helper component for cleaner JSX
+const Checkbox = ({ label, checked, onChange }: { label: string, checked: boolean, onChange: (v: boolean) => void }) => (
+  <label className="flex items-center gap-3 text-white cursor-pointer hover:bg-slate-600 p-2 rounded transition">
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={(e) => onChange(e.target.checked)}
+      className="w-5 h-5 rounded accent-blue-500"
+    />
+    <span className="font-medium">{label}</span>
+  </label>
+);
 
 export default RuleBuilder;

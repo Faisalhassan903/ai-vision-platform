@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+// 1. IMPORT THE CONFIG
+import { API_BASE_URL } from '../config'; 
 
 interface User {
   id: string;
@@ -24,7 +26,8 @@ export const useAuthStore = create<AuthState>()(
       token: null,
 
       login: async (email, password) => {
-        const res = await fetch('http://localhost:5000/api/auth/login', {
+        // 2. USE API_BASE_URL INSTEAD OF LOCALHOST
+        const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password })
@@ -35,7 +38,8 @@ export const useAuthStore = create<AuthState>()(
       },
 
       register: async (email, password) => {
-        const res = await fetch('http://localhost:5000/api/auth/register', {
+        // 3. USE API_BASE_URL INSTEAD OF LOCALHOST
+        const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password })
@@ -49,7 +53,8 @@ export const useAuthStore = create<AuthState>()(
       refreshUser: async () => {
         const { token } = get();
         if (!token) return;
-        const res = await fetch('http://localhost:5000/api/auth/me', {
+        // 4. USE API_BASE_URL INSTEAD OF LOCALHOST
+        const res = await fetch(`${API_BASE_URL}/api/auth/me`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {

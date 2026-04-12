@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Card, Button, Badge } from '../components/ui';
 import RuleBuilder from '../components/RuleBuilder';
+// 1. IMPORT THE DYNAMIC BASE URL
+import { API_BASE_URL } from '../config'; 
 
 interface AlertRule {
   _id: string;
@@ -27,7 +29,8 @@ function AlertRules() {
 
   const fetchRules = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/alerts/rules');
+      // 2. USE API_BASE_URL
+      const response = await axios.get(`${API_BASE_URL}/api/alerts/rules`);
       setRules(response.data.rules);
     } catch (error) {
       console.error('Error fetching rules:', error);
@@ -36,7 +39,8 @@ function AlertRules() {
 
   const toggleRule = async (ruleId: string, enabled: boolean) => {
     try {
-      await axios.put(`http://localhost:5000/api/alerts/rules/${ruleId}`, { enabled });
+      // 3. USE API_BASE_URL
+      await axios.put(`${API_BASE_URL}/api/alerts/rules/${ruleId}`, { enabled });
       fetchRules();
     } catch (error) {
       console.error('Error toggling rule:', error);
@@ -47,7 +51,8 @@ function AlertRules() {
     if (!confirm('Are you sure you want to delete this rule?')) return;
     
     try {
-      await axios.delete(`http://localhost:5000/api/alerts/rules/${ruleId}`);
+      // 4. USE API_BASE_URL
+      await axios.delete(`${API_BASE_URL}/api/alerts/rules/${ruleId}`);
       fetchRules();
     } catch (error) {
       console.error('Error deleting rule:', error);

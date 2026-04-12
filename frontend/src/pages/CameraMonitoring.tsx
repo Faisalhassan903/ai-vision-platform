@@ -1,19 +1,11 @@
-// ===========================================
-// CAMERA MONITORING PAGE
-// ===========================================
-// Main page for zone-based security monitoring
-// Replaces: MultiCamera.tsx, ZoneCamera.tsx
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { CameraCanvas, ZoneList, AlertPanel } from '../components/camera';
 import { useCameraStore } from '../store';
 import type { Detection } from '../store';
 import { Card, Button, StatCard } from '../components/ui';
-
-// -------------------------------------------
-// COMPONENT
-// -------------------------------------------
+// 1. IMPORT THE SOCKET URL
+import { SOCKET_URL } from '../config'; 
 
 const CameraMonitoring: React.FC = () => {
   // Refs
@@ -44,10 +36,6 @@ const CameraMonitoring: React.FC = () => {
   const zones = zonesRecord[cameraId] || [];
   const personsInZone = detections.filter((d) => d.label === 'person' && d.inZone);
 
-  // -------------------------------------------
-  // CAMERA CONTROL
-  // -------------------------------------------
-
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -66,19 +54,16 @@ const CameraMonitoring: React.FC = () => {
   };
 
   const stopCamera = useCallback(() => {
-    // Stop video stream
     if (videoRef.current?.srcObject) {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach((track) => track.stop());
       videoRef.current.srcObject = null;
     }
 
-    // Clear interval
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
 
-    // Disconnect socket
     if (socketRef.current) {
       socketRef.current.disconnect();
       socketRef.current = null;
@@ -92,30 +77,27 @@ const CameraMonitoring: React.FC = () => {
   // -------------------------------------------
 
   const connectSocket = () => {
-    socketRef.current = io('http://localhost:5000');
+    // 2. USE SOCKET_URL VARIABLE
+    socketRef.current = io(SOCKET_URL);
 
     socketRef.current.on('connect', () => {
-      console.log('✅ Socket connected');
+      console.log('✅ Socket connected to:', SOCKET_URL);
       setIsStreaming(true);
       startProcessing();
     });
 
     socketRef.current.on('detections', (data) => {
-      // Convert backend detection format to our normalized format
       const normalizedDetections: Detection[] = (data.detections || []).map((det: any) => ({
         label: det.class,
         confidence: det.confidence,
-        // Convert from YOLO bbox to normalized coords
-        // Backend sends x1,y1,x2,y2 in 416x416 scale
         x: det.bbox.x1 / 416,
         y: det.bbox.y1 / 416,
         width: (det.bbox.x2 - det.bbox.x1) / 416,
         height: (det.bbox.y2 - det.bbox.y1) / 416,
-        inZone: false,  // Will be set by store
+        inZone: false,
         zoneIds: [],
       }));
 
-      // Update store (this will also check zone intersections)
       setDetections(cameraId, normalizedDetections);
       setProcessedFrames((prev) => prev + 1);
     });
@@ -125,24 +107,16 @@ const CameraMonitoring: React.FC = () => {
     });
   };
 
-  // -------------------------------------------
-  // FRAME PROCESSING
-  // -------------------------------------------
-
   const startProcessing = () => {
     let frameCount = 0;
-    let lastFpsUpdate = Date.now();
 
-    // FPS counter
     const fpsInterval = setInterval(() => {
       setFps(frameCount);
       frameCount = 0;
     }, 1000);
 
-    // Send frames to backend
     intervalRef.current = setInterval(() => {
       if (videoRef.current && socketRef.current?.connected) {
-        // Create temp canvas to capture frame
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = 640;
         tempCanvas.height = 480;
@@ -152,27 +126,21 @@ const CameraMonitoring: React.FC = () => {
           ctx.drawImage(videoRef.current, 0, 0, 640, 480);
           const frameData = tempCanvas.toDataURL('image/jpeg', 0.6);
           
-          // Send frame with zone data
           socketRef.current.emit('video-frame', {
             frame: frameData,
             cameraId,
-            zones: zones,  // Send zones for backend processing if needed
+            zones: zones,
           });
           
           frameCount++;
         }
       }
-    }, 100);  // ~10 FPS for processing
+    }, 100);
 
-    // Cleanup on unmount
     return () => {
       clearInterval(fpsInterval);
     };
   };
-
-  // -------------------------------------------
-  // CLEANUP ON UNMOUNT
-  // -------------------------------------------
 
   useEffect(() => {
     return () => {
@@ -180,15 +148,9 @@ const CameraMonitoring: React.FC = () => {
     };
   }, [stopCamera]);
 
-  // -------------------------------------------
-  // RENDER
-  // -------------------------------------------
-
   return (
     <div className="min-h-screen bg-slate-900 p-6 text-white">
       <div className="max-w-7xl mx-auto">
-        
-        {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-3">
@@ -212,7 +174,6 @@ const CameraMonitoring: React.FC = () => {
           </div>
         </div>
 
-        {/* Stats Bar */}
         {isStreaming && (
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
             <StatCard icon="📊" value={fps} label="FPS" />
@@ -233,13 +194,9 @@ const CameraMonitoring: React.FC = () => {
           </div>
         )}
 
-        {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Camera View (2/3 width) */}
           <div className="lg:col-span-2">
             <Card className="bg-black p-0 overflow-hidden">
-              {/* Hidden video element */}
               <video
                 ref={videoRef}
                 className="hidden"
@@ -248,7 +205,6 @@ const CameraMonitoring: React.FC = () => {
                 autoPlay
               />
               
-              {/* Canvas with zone drawing */}
               <CameraCanvas
                 cameraId={cameraId}
                 videoRef={videoRef}
@@ -259,7 +215,6 @@ const CameraMonitoring: React.FC = () => {
               />
             </Card>
 
-            {/* Controls below camera */}
             <div className="mt-4 flex flex-wrap gap-3">
               <Button
                 onClick={toggleAlarm}
@@ -285,15 +240,9 @@ const CameraMonitoring: React.FC = () => {
             </div>
           </div>
 
-          {/* Right Sidebar */}
           <div className="space-y-4">
-            {/* Alert Panel */}
             <AlertPanel />
-
-            {/* Zone List */}
             <ZoneList cameraId={cameraId} />
-
-            {/* Detection List */}
             <Card title="🎯 Live Detections">
               {detections.length === 0 ? (
                 <p className="text-slate-500 text-center py-4">
@@ -330,7 +279,6 @@ const CameraMonitoring: React.FC = () => {
               )}
             </Card>
 
-            {/* Instructions */}
             <Card title="📋 How to Use">
               <ol className="text-sm text-slate-400 space-y-2 list-decimal list-inside">
                 <li>Click "Start Camera" to begin</li>

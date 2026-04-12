@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { Button, Card, Badge, LoadingSpinner } from './ui';
+// 1. ENSURE CONFIG IS IMPORTED
+import { API_BASE_URL } from '../config';
 
 function ImageUpload() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -30,8 +32,9 @@ function ImageUpload() {
       const formData = new FormData();
       formData.append('image', selectedImage);
 
+      // 2. UPDATED TO USE API_BASE_URL
       const response = await axios.post(
-        'http://localhost:5000/api/vision/classify',
+        `${API_BASE_URL}/api/vision/classify`,
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
@@ -54,8 +57,9 @@ function ImageUpload() {
       const formData = new FormData();
       formData.append('image', selectedImage);
 
+      // 3. UPDATED TO USE API_BASE_URL
       const response = await axios.post(
-        'http://localhost:5000/api/vision/detect',
+        `${API_BASE_URL}/api/vision/detect`,
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
@@ -79,7 +83,6 @@ function ImageUpload() {
           Powered by ResNet50 & YOLOv8
         </p>
 
-        {/* Upload Section */}
         <Card className="mb-6">
           <input
             type="file"
@@ -89,18 +92,16 @@ function ImageUpload() {
           />
         </Card>
 
-        {/* Preview Image */}
         {previewUrl && !detectionResult?.image_with_boxes && (
           <Card className="mb-6 text-center">
             <img
               src={previewUrl}
               alt="Preview"
-              className="max-w-full max-h-96 mx-auto rounded-lg"
+              className="max-w-full max-h-96 mx-auto rounded-lg shadow-xl"
             />
           </Card>
         )}
 
-        {/* Action Buttons */}
         {selectedImage && (
           <div className="flex gap-4 justify-center mb-6">
             <Button onClick={handleClassify} disabled={loading} variant="primary" size="lg">
@@ -112,28 +113,26 @@ function ImageUpload() {
           </div>
         )}
 
-        {/* Loading */}
         {loading && (
           <div className="flex justify-center my-8">
             <LoadingSpinner size="lg" />
           </div>
         )}
 
-        {/* Classification Results */}
         {classificationResult && (
-          <Card className="mb-6 border-blue-500">
+          <Card className="mb-6 border-blue-500 bg-[#1e293b]">
             <h3 className="text-2xl font-bold text-white mb-4">🏷️ Classification Result</h3>
             {classificationResult.error ? (
               <p className="text-red-400">{classificationResult.error}</p>
             ) : (
               <div>
-                <p className="text-3xl font-bold text-primary-blue mb-4">
+                <p className="text-3xl font-bold text-blue-400 mb-4">
                   {classificationResult.topPrediction} ({classificationResult.topConfidence})
                 </p>
                 <h4 className="text-lg font-semibold text-white mb-2">Alternative Matches:</h4>
                 <div className="space-y-2">
                   {classificationResult.predictions?.map((pred: any, idx: number) => (
-                    <div key={idx} className="flex justify-between items-center bg-dark-bg p-3 rounded-lg">
+                    <div key={idx} className="flex justify-between items-center bg-slate-900 p-3 rounded-lg">
                       <span className="text-gray-300 font-medium">{pred.label}</span>
                       <Badge variant="info">{pred.confidence_percent}</Badge>
                     </div>
@@ -144,54 +143,47 @@ function ImageUpload() {
           </Card>
         )}
 
-        {/* Detection Results */}
         {detectionResult && (
-          <Card className="border-green-500">
+          <Card className="border-green-500 bg-[#1e293b]">
             <h3 className="text-2xl font-bold text-white mb-4">📦 Object Detection Analysis</h3>
             {detectionResult.error ? (
               <p className="text-red-400">{detectionResult.error}</p>
             ) : (
               <div>
-                
-                {/* Annotated Image */}
                 {detectionResult.image_with_boxes && (
                   <div className="mb-6 text-center">
                     <h4 className="text-lg font-semibold text-white mb-3">🎨 Annotated Vision Output:</h4>
                     <img
                       src={detectionResult.image_with_boxes}
                       alt="Detections"
-                      className="max-w-full rounded-lg border-4 border-accent-green shadow-lg mx-auto"
+                      className="max-w-full rounded-lg border-4 border-green-500 shadow-2xl mx-auto"
                     />
                   </div>
                 )}
 
-                {/* Detection Summary */}
-                <div className="bg-dark-bg p-4 rounded-lg mb-4">
+                <div className="bg-slate-900 p-4 rounded-lg mb-4">
                   <p className="text-xl font-bold text-white">
-                    Found {detectionResult.totalObjects} unique object(s):
+                    Found {detectionResult.totalObjects || 0} object(s):
                   </p>
                 </div>
 
-                {/* Detection Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {detectionResult.detections?.map((det: any, idx: number) => (
-                    <Card key={idx} className="bg-dark-bg">
+                    <Card key={idx} className="bg-slate-800 border-slate-700">
                       <div className="flex justify-between items-start mb-2">
                         <span className="text-lg font-bold text-white capitalize">{det.class}</span>
                         <Badge variant="success">{det.confidence_percent}</Badge>
                       </div>
                       <div className="text-sm text-gray-400">
-                        Size: {det.bbox.width}×{det.bbox.height}px
+                        Size: {Math.round(det.bbox.width)}×{Math.round(det.bbox.height)}px
                       </div>
                     </Card>
                   ))}
                 </div>
-
               </div>
             )}
           </Card>
         )}
-
       </div>
     </div>
   );
