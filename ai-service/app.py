@@ -49,6 +49,7 @@ def handle_video_frame(data):
         print(f"Error: {e}")
 
 if __name__ == '__main__':
-    # CRITICAL: Use socketio.run instead of app.run
+    # Add allow_unsafe_werkzeug=True to bypass the production safety check
     port = int(os.environ.get("PORT", 10000))
-    socketio.run(app, host='0.0.0.0', port=port)
+    print(f"🚀 AI Service launching on port {port}...")
+    socketio.run(app, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
