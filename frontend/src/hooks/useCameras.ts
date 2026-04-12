@@ -25,32 +25,45 @@ export function useCameras(): UseCamerasReturn {
   const [error, setError] = useState<string | null>(null);
   const [cameras, setCameras] = useState<Camera[]>([]);
 
+  // Zustand store actions
   const storeCameras = useCameraStore((s) => s.cameras);
   const setStoreCameras = useCameraStore((s) => s.setCameras);
   const addStoreCamera = useCameraStore((s) => s.addCamera);
   const removeStoreCamera = useCameraStore((s) => s.removeCamera);
   const updateStoreCamera = useCameraStore((s) => s.updateCamera);
 
+  // Centralized Error Handling
+  const handleApiError = useCallback((err: any, fallbackMessage: string) => {
+    const message = err instanceof Error ? err.message : fallbackMessage;
+    console.error(`[useCameras] ${fallbackMessage}:`, err);
+    setError(message);
+    return message;
+  }, []);
+
+  // -------------------------------------------
+  // FETCH ALL CAMERAS
+  // -------------------------------------------
   const refreshCameras = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
       const response = await fetch(API_URL);
-      const contentType = response.headers.get("content-type");
       
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("Backend returned non-JSON response. Check your MAIN_BACKEND_URL.");
+      // Defensive check for HTML error pages from Render/Vercel
+      const contentType = response.headers.get("content-type");
+      if (!response.ok || !contentType?.includes("application/json")) {
+        throw new Error(`Server error: ${response.status} ${response.statusText}. Check MAIN_BACKEND_URL.`);
       }
 
       const data = await response.json();
 
-      if (data.success) {
+      if (data.success && Array.isArray(data.cameras)) {
         const formattedCameras: Camera[] = data.cameras.map((cam: any) => ({
           id: cam.cameraId || cam._id,
-          name: cam.name,
+          name: cam.name || 'Unknown Camera',
           type: cam.type || 'webcam',
-          streamUrl: cam.streamUrl,
+          streamUrl: cam.streamUrl || '',
           username: cam.username,
           password: cam.password,
           deviceId: cam.deviceId,
@@ -60,29 +73,30 @@ export function useCameras(): UseCamerasReturn {
           status: cam.status || 'offline',
           lastSeen: cam.lastSeen,
           errorMessage: cam.lastError,
-          createdAt: new Date(cam.createdAt).getTime(),
+          createdAt: cam.createdAt ? new Date(cam.createdAt).getTime() : Date.now(),
           updatedAt: cam.updatedAt ? new Date(cam.updatedAt).getTime() : undefined,
         }));
 
         setCameras(formattedCameras);
-        if (typeof setStoreCameras === 'function') {
-          setStoreCameras(formattedCameras);
-        }
+        if (setStoreCameras) setStoreCameras(formattedCameras);
       } else {
-        throw new Error(data.error || 'Failed to fetch cameras');
+        throw new Error(data.error || 'Invalid data format received from server');
       }
-    } catch (err: any) {
-      console.error('[useCameras] Fetch error:', err);
-      setError(err.message);
-      setCameras(storeCameras);
+    } catch (err) {
+      handleApiError(err, 'Failed to refresh cameras');
+      setCameras(storeCameras); // Fallback to local store data
     } finally {
       setIsLoading(false);
     }
-  }, [storeCameras, setStoreCameras]);
+  }, [storeCameras, setStoreCameras, handleApiError]);
 
+  // -------------------------------------------
+  // ADD NEW CAMERA
+  // -------------------------------------------
   const addCamera = useCallback(async (
     cameraData: Omit<Camera, 'id' | 'createdAt' | 'status'>
   ): Promise<Camera | null> => {
+    setError(null);
     try {
       const response = await fetch(API_URL, {
         method: 'POST',
@@ -92,7 +106,7 @@ export function useCameras(): UseCamerasReturn {
 
       const data = await response.json();
 
-      if (data.success) {
+      if (data.success && data.camera) {
         const newCamera: Camera = {
           ...cameraData,
           id: data.camera.cameraId || data.camera._id,
@@ -104,13 +118,16 @@ export function useCameras(): UseCamerasReturn {
         addStoreCamera(newCamera);
         return newCamera;
       }
-      throw new Error(data.error || 'Failed to add camera');
-    } catch (err: any) {
-      setError(err.message);
+      throw new Error(data.error || 'Server failed to save camera');
+    } catch (err) {
+      handleApiError(err, 'Could not add camera');
       return null;
     }
-  }, [addStoreCamera]);
+  }, [addStoreCamera, handleApiError]);
 
+  // -------------------------------------------
+  // UPDATE CAMERA
+  // -------------------------------------------
   const updateCamera = useCallback(async (id: string, updates: Partial<Camera>) => {
     try {
       const response = await fetch(`${API_URL}/${id}`, {
@@ -118,16 +135,23 @@ export function useCameras(): UseCamerasReturn {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
+      
       const data = await response.json();
       if (data.success) {
         setCameras(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
         updateStoreCamera(id, updates);
         return true;
       }
+      throw new Error(data.error || 'Update failed');
+    } catch (err) {
+      handleApiError(err, 'Update error');
       return false;
-    } catch { return false; }
-  }, [updateStoreCamera]);
+    }
+  }, [updateStoreCamera, handleApiError]);
 
+  // -------------------------------------------
+  // DELETE CAMERA
+  // -------------------------------------------
   const deleteCamera = useCallback(async (id: string) => {
     try {
       const response = await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
@@ -137,14 +161,21 @@ export function useCameras(): UseCamerasReturn {
         removeStoreCamera(id);
         return true;
       }
+      throw new Error(data.error || 'Deletion failed');
+    } catch (err) {
+      handleApiError(err, 'Delete error');
       return false;
-    } catch { return false; }
-  }, [removeStoreCamera]);
+    }
+  }, [removeStoreCamera, handleApiError]);
 
+  // -------------------------------------------
+  // TEST CONNECTION
+  // -------------------------------------------
   const testCamera = useCallback(async (id: string) => {
     try {
       const response = await fetch(`${API_URL}/${id}/test`, { method: 'POST' });
       const data = await response.json();
+      
       const statusUpdate = { 
         status: data.success ? 'online' : 'error' as any, 
         errorMessage: data.error 
@@ -155,11 +186,11 @@ export function useCameras(): UseCamerasReturn {
       
       return { success: data.success, error: data.error };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return { success: false, error: err.message || 'Connection test failed' };
     }
   }, [updateStoreCamera]);
 
-  // INITIAL FETCH ONLY
+  // Auto-fetch on mount
   useEffect(() => {
     refreshCameras();
   }, [refreshCameras]);
