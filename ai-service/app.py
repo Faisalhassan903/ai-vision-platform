@@ -5,258 +5,144 @@ import torch
 import torchvision.transforms as transforms
 from torchvision.models import resnet50, ResNet50_Weights
 import io
+import os
 import json
-import os # Added for port handling
-
-from ultralytics import YOLO
-import cv2
-import numpy as np
 import base64
+import numpy as np
+import cv2
+from ultralytics import YOLO
 from threading import Lock
 
 # Initialize Flask app
 app = Flask(__name__)
+# Enable CORS so your Vercel frontend can talk to this Render backend
 CORS(app)
 
-# Load pre-trained ResNet50 model
+# --- MODEL LOADING ---
+
 print("🔄 Loading ResNet50 model (PyTorch)...")
 weights = ResNet50_Weights.IMAGENET1K_V2
-model = resnet50(weights=weights)
-model.eval()
-print("✅ Model loaded successfully!")
-
-# Load YOLO model for object detection
-# CHANGED: Switched from yolov8s.pt to yolov8n.pt for better performance on cloud hosting
-print("🔄 Loading YOLOv8 Nano model...")
-yolo_model = YOLO('yolov8n.pt') 
-print("✅ YOLOv8n model loaded successfully!")
-
-# Thread lock to prevent concurrent processing
-processing_lock = Lock()
-is_processing = False
-
-# Load ImageNet class labels
+classifier_model = resnet50(weights=weights)
+classifier_model.eval()
 class_labels = weights.meta["categories"]
+print("✅ ResNet50 loaded!")
 
-# Image preprocessing pipeline
+print("🔄 Loading YOLOv8 Nano model...")
+# Using Nano version for faster inference on Render's free/starter tiers
+yolo_model = YOLO('yolov8n.pt') 
+print("✅ YOLOv8n loaded!")
+
+# --- UTILS ---
+
 preprocess = transforms.Compose([
     transforms.Resize(256),
     transforms.CenterCrop(224),
     transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-# Health check endpoint
+# --- ROUTES ---
+
 @app.route('/', methods=['GET'])
 def health_check():
     return jsonify({
-        'status': 'running',
-        'message': 'AI Vision Service is ready! 🧠',
-        'model': 'YOLOv8n + ResNet50',
-        'python_version': '3.x',
-        'classes': len(class_labels)
+        'status': 'online',
+        'message': 'AI Vision Service is active!',
+        'models': ['ResNet50', 'YOLOv8n']
     })
 
-# Prediction endpoint
-@app.route('/predict', methods=['POST'])
-def predict():
+# Unified route for Classification
+@app.route('/api/vision/classify', methods=['POST'])
+def classify_image():
     try:
         if 'image' not in request.files:
-            return jsonify({'error': 'No image file provided'}), 400
+            return jsonify({'error': 'No image provided'}), 400
         
         file = request.files['image']
-        img_bytes = file.read()
-        img = Image.open(io.BytesIO(img_bytes))
+        img = Image.open(io.BytesIO(file.read())).convert('RGB')
         
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-        
-        img_tensor = preprocess(img)
-        img_batch = img_tensor.unsqueeze(0)
-        
+        # Inference
+        img_tensor = preprocess(img).unsqueeze(0)
         with torch.no_grad():
-            output = model(img_batch)
+            output = classifier_model(img_tensor)
         
-        probabilities = torch.nn.functional.softmax(output[0], dim=0)
-        top3_prob, top3_idx = torch.topk(probabilities, 3)
+        # Formatting results
+        probs = torch.nn.functional.softmax(output[0], dim=0)
+        top_probs, top_idxs = torch.topk(probs, 3)
         
-        results = []
+        predictions = []
         for i in range(3):
-            idx = top3_idx[i].item()
-            prob = top3_prob[i].item()
-            label = class_labels[idx]
-            
-            results.append({
-                'rank': i + 1,
-                'label': label.replace('_', ' ').title(),
-                'confidence': float(prob),
-                'confidence_percent': f"{float(prob) * 100:.2f}%"
+            label = class_labels[top_idxs[i].item()].replace('_', ' ').title()
+            conf = float(top_probs[i].item())
+            predictions.append({
+                'label': label,
+                'confidence_percent': f"{conf * 100:.2f}%"
             })
-        
+            
         return jsonify({
             'success': True,
-            'predictions': results,
-            'top_prediction': results[0]['label'],
-            'top_confidence': results[0]['confidence_percent']
+            'topPrediction': predictions[0]['label'],
+            'topConfidence': predictions[0]['confidence_percent'],
+            'predictions': predictions
         })
-        
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'error': str(e)}), 500
 
-# Object Detection endpoint with drawn boxes
-@app.route('/detect', methods=['POST'])
+# Unified route for Object Detection
+@app.route('/api/vision/detect', methods=['POST'])
 def detect_objects():
     try:
         if 'image' not in request.files:
-            return jsonify({'error': 'No image file provided'}), 400
+            return jsonify({'error': 'No image provided'}), 400
         
         file = request.files['image']
-        img_bytes = file.read()
+        file_bytes = np.frombuffer(file.read(), np.uint8)
+        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         
-        nparr = np.frombuffer(img_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        img_with_boxes = img.copy()
-        
+        # Run YOLOv8
         results = yolo_model(img, verbose=False)
-        
         detections = []
+        annotated_img = img.copy()
+
         for result in results:
-            boxes = result.boxes
-            for box in boxes:
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-                
-                class_id = int(box.cls[0])
-                confidence = float(box.conf[0])
-                class_name = yolo_model.names[class_id]
-                
-                cv2.rectangle(img_with_boxes, (x1, y1), (x2, y2), (0, 0, 255), 3)
-                
-                label = f"{class_name} {confidence*100:.1f}%"
-                
-                (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-                cv2.rectangle(img_with_boxes, (x1, y1 - label_height - 10), (x1 + label_width, y1), (0, 0, 255), -1)
-                
-                cv2.putText(img_with_boxes, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                
+            for box in result.boxes:
+                # Get coordinates
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                conf = float(box.conf[0])
+                cls_id = int(box.cls[0])
+                label = yolo_model.names[cls_id]
+
+                # Draw Bounding Box (Green)
+                cv2.rectangle(annotated_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(annotated_img, f"{label} {conf:.2f}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
                 detections.append({
-                    'class': class_name,
-                    'confidence': confidence,
-                    'confidence_percent': f"{confidence * 100:.2f}%",
+                    'class': label,
+                    'confidence_percent': f"{conf * 100:.1f}%",
                     'bbox': {
-                        'x1': x1,
-                        'y1': y1,
-                        'x2': x2,
-                        'y2': y2,
-                        'width': x2 - x1,
-                        'height': y2 - y1
+                        'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
+                        'width': x2 - x1, 'height': y2 - y1
                     }
                 })
-        
-        detections.sort(key=lambda x: x['confidence'], reverse=True)
-        
-        _, buffer = cv2.imencode('.jpg', img_with_boxes)
-        img_base64_str = base64.b64encode(buffer).decode('utf-8')
-        
+
+        # Encode annotated image to Base64
+        _, buffer = cv2.imencode('.jpg', annotated_img)
+        img_base64 = base64.b64encode(buffer).decode('utf-8')
+
         return jsonify({
             'success': True,
             'detections': detections,
-            'total_objects': len(detections),
-            'image_with_boxes': f"data:image/jpeg;base64,{img_base64_str}"
+            'totalObjects': len(detections), # Matches frontend key
+            'image_with_boxes': f"data:image/jpeg;base64,{img_base64}"
         })
-        
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'error': str(e)}), 500
 
-# LIVE STREAM ENDPOINT
-@app.route('/detect-live', methods=['POST'])
-def detect_live():
-    global is_processing
-    
-    if not processing_lock.acquire(blocking=False):
-        return jsonify({
-            'success': True,
-            'detections': [],
-            'total_objects': 0
-        }), 200
-    
-    try:
-        if 'image' not in request.files:
-            return jsonify({'error': 'No image file provided'}), 400
-        
-        file = request.files['image']
-        img_bytes = file.read()
-        
-        nparr = np.frombuffer(img_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if img is None:
-            return jsonify({'error': 'Failed to decode image'}), 400
-        
-        original_height, original_width = img.shape[:2]
-        
-        results = yolo_model(
-            img,
-            conf=0.25,
-            iou=0.45,
-            max_det=20,
-            verbose=False
-        )
-        
-        detections = []
-        for result in results:
-            boxes = result.boxes
-            for box in boxes:
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                class_id = int(box.cls[0])
-                confidence = float(box.conf[0])
-                class_name = yolo_model.names[class_id]
-                
-                scale_x = 416 / original_width
-                scale_y = 416 / original_height
-                
-                detections.append({
-                    'class': class_name,
-                    'confidence': confidence,
-                    'confidence_percent': f"{confidence * 100:.2f}%",
-                    'bbox': {
-                        'x1': int(x1 * scale_x),
-                        'y1': int(y1 * scale_y),
-                        'x2': int(x2 * scale_x),
-                        'y2': int(y2 * scale_y),
-                        'width': int((x2 - x1) * scale_x),
-                        'height': int((y2 - y1) * scale_y)
-                    }
-                })
-        
-        detections.sort(key=lambda x: x['confidence'], reverse=True)
-        return jsonify({
-            'success': True,
-            'detections': detections,
-            'total_objects': len(detections)
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-    finally:
-        processing_lock.release()
+# --- STARTUP ---
 
-# Start server
 if __name__ == '__main__':
-    # CHANGED: Added dynamic port for Render/Railway deployment
-    port = int(os.environ.get("PORT", 5001))
-    print(f"🚀 Starting AI Vision Service on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+    # PORT is provided by Render, default to 10000 for local testing
+    port = int(os.environ.get("PORT", 10000))
+    print(f"🚀 AI Service launching on port {port}...")
+    app.run(host='0.0.0.0', port=port)
