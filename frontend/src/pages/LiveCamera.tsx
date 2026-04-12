@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
+
+// FIX: Path adjusted to match your 'src/components/ui' structure
+import { Button, StatCard } from '../components/ui'; 
 import { useAlerts } from '../hooks/useAlerts';
-import { Button, StatCard } from './ui';
 
 const LiveCamera = () => {
   const { triggerNewAlert } = useAlerts();
@@ -10,7 +12,6 @@ const LiveCamera = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
   const requestRef = useRef<number>();
-  const lastIncidentTime = useRef<number>(0);
 
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState('OFFLINE');
@@ -25,30 +26,21 @@ const LiveCamera = () => {
 
       if (ctx && canvasRef.current) {
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        
         predictions.forEach(p => {
           const [x, y, w, h] = p.bbox;
           ctx.strokeStyle = '#00FF41';
           ctx.strokeRect(x, y, w, h);
-          ctx.fillStyle = '#00FF41';
-          ctx.fillText(`${p.class.toUpperCase()}`, x, y > 10 ? y - 5 : 10);
         });
 
-        // RULE ENGINE: If a person is found and 10 seconds have passed since last save
-        const personMatch = predictions.find(p => p.class === 'person' && p.score > 0.7);
-        const now = Date.now();
-
-        if (personMatch && (now - lastIncidentTime.current > 10000)) {
-          lastIncidentTime.current = now;
-          
-          // PUSH TO ALERT CENTER (Via Hook)
+        // Trigger logic
+        const person = predictions.find(p => p.class === 'person' && p.score > 0.7);
+        if (person) {
           triggerNewAlert({
-            ruleName: "Intrusion Detection",
+            ruleName: "Motion Detection",
             priority: 'critical',
-            message: "Human presence detected in restricted area.",
-            cameraName: "Front Camera 01",
+            message: "Person detected",
             timestamp: new Date().toISOString(),
-            detections: predictions.map(p => ({ class: p.class, confidence: p.score }))
+            detections: [{ class: 'person', confidence: person.score }]
           });
         }
       }
@@ -59,23 +51,20 @@ const LiveCamera = () => {
   }, [isActive, triggerNewAlert]);
 
   const startEngine = async () => {
-    setStatus('INITIALIZING...');
     try {
+      setStatus('LOADING_MODELS...');
       await tf.ready();
       const [m, s] = await Promise.all([
         cocoSsd.load(),
-        navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+        navigator.mediaDevices.getUserMedia({ video: true })
       ]);
       modelRef.current = m;
-      if (videoRef.current) {
-        videoRef.current.srcObject = s;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play();
-          setIsActive(true);
-          setStatus('LIVE');
-        };
-      }
-    } catch (e) { setStatus('ERROR'); }
+      if (videoRef.current) videoRef.current.srcObject = s;
+      setIsActive(true);
+      setStatus('LIVE');
+    } catch (e) {
+      setStatus('CAM_ERROR');
+    }
   };
 
   useEffect(() => {
@@ -84,15 +73,13 @@ const LiveCamera = () => {
   }, [isActive, detectFrame]);
 
   return (
-    <div className="p-4 bg-black border border-[#00FF41]/20 rounded">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-[#00FF41] font-mono">CORE_CAM // {status}</h2>
-        <Button onClick={isActive ? () => window.location.reload() : startEngine}>
-          {isActive ? 'REBOOT' : 'START SYSTEM'}
-        </Button>
+    <div className="p-4 bg-black min-h-screen text-[#00FF41] font-mono">
+      <div className="flex justify-between mb-4">
+        <h2>SENTRY_CORE // {status}</h2>
+        <Button onClick={startEngine}>INITIALIZE</Button>
       </div>
-      <div className="relative bg-zinc-900 aspect-video rounded overflow-hidden">
-        <video ref={videoRef} className="w-full h-full object-cover opacity-60" muted playsInline />
+      <div className="relative aspect-video border border-[#00FF41]/20">
+        <video ref={videoRef} className="w-full h-full opacity-40" autoPlay muted playsInline />
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
       </div>
     </div>
