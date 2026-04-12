@@ -10,8 +10,15 @@ from ultralytics import YOLO
 app = Flask(__name__)
 CORS(app)
 # Allow connections from your frontend
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading') 
 
+# app.py
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins="*", 
+    async_mode='threading', 
+    logger=True, 
+    engineio_logger=True  # This will show us EXACTLY why frames fail in Render logs
+)
 yolo_model = YOLO('yolov8n.pt')
 
 @socketio.on('video-frame')

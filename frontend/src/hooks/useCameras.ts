@@ -1,12 +1,12 @@
 // ===========================================
-// USE CAMERAS HOOK - OPTIMIZED
+// USE CAMERAS HOOK - DB MANAGEMENT (Main Backend)
+// ===========================================
 
 import { useState, useEffect, useCallback } from 'react';
 import { useCameraStore } from '../store';
 import type { Camera } from '../store';
-import { MAIN_BACKEND_URL } from '../config'; // Using the Main Backend for DB operations
+import { MAIN_BACKEND_URL } from '../config'; 
 
-// Single source of truth for DB records
 const API_URL = `${MAIN_BACKEND_URL}/api/cameras`;
 
 interface UseCamerasReturn {
@@ -25,24 +25,20 @@ export function useCameras(): UseCamerasReturn {
   const [error, setError] = useState<string | null>(null);
   const [cameras, setCameras] = useState<Camera[]>([]);
 
-  // Zustand store actions
   const storeCameras = useCameraStore((s) => s.cameras);
-  const setStoreCameras = useCameraStore((s) => s.setCameras); // Assume setCameras replaces the whole array
+  const setStoreCameras = useCameraStore((s) => s.setCameras);
   const addStoreCamera = useCameraStore((s) => s.addCamera);
   const removeStoreCamera = useCameraStore((s) => s.removeCamera);
   const updateStoreCamera = useCameraStore((s) => s.updateCamera);
 
-  // -------------------------------------------
-  // FETCH CAMERAS
-  // -------------------------------------------
   const refreshCameras = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
       const response = await fetch(API_URL);
-      // Handle non-JSON responses (like Render's 404 HTML pages)
       const contentType = response.headers.get("content-type");
+      
       if (!contentType || !contentType.includes("application/json")) {
         throw new Error("Backend returned non-JSON response. Check your MAIN_BACKEND_URL.");
       }
@@ -69,8 +65,6 @@ export function useCameras(): UseCamerasReturn {
         }));
 
         setCameras(formattedCameras);
-        
-        // SYNC: Update the global Zustand store to match the database exactly
         if (typeof setStoreCameras === 'function') {
           setStoreCameras(formattedCameras);
         }
@@ -80,15 +74,12 @@ export function useCameras(): UseCamerasReturn {
     } catch (err: any) {
       console.error('[useCameras] Fetch error:', err);
       setError(err.message);
-      setCameras(storeCameras); // Fallback to store
+      setCameras(storeCameras);
     } finally {
       setIsLoading(false);
     }
   }, [storeCameras, setStoreCameras]);
 
-  // -------------------------------------------
-  // ADD CAMERA
-  // -------------------------------------------
   const addCamera = useCallback(async (
     cameraData: Omit<Camera, 'id' | 'createdAt' | 'status'>
   ): Promise<Camera | null> => {
@@ -120,9 +111,6 @@ export function useCameras(): UseCamerasReturn {
     }
   }, [addStoreCamera]);
 
-  // -------------------------------------------
-  // UPDATE / DELETE / TEST (Remain largely same but use MAIN_BACKEND_URL)
-  // -------------------------------------------
   const updateCamera = useCallback(async (id: string, updates: Partial<Camera>) => {
     try {
       const response = await fetch(`${API_URL}/${id}`, {
@@ -171,9 +159,10 @@ export function useCameras(): UseCamerasReturn {
     }
   }, [updateStoreCamera]);
 
+  // INITIAL FETCH ONLY
   useEffect(() => {
     refreshCameras();
-  }, []);
+  }, [refreshCameras]);
 
   return { cameras, isLoading, error, addCamera, updateCamera, deleteCamera, refreshCameras, testCamera };
 }
