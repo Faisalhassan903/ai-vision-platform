@@ -62,12 +62,15 @@ function LiveCamera() {
   };
 
   const connectSocket = () => {
-    // Connect specifically to the AI URL to avoid the 404
-    socketRef.current = io(AI_SERVICE_URL, {
-      transports: ['websocket'],
-      upgrade: false,
-      reconnection: true
-    });
+  socketRef.current = io(AI_SERVICE_URL, {
+    // This line tells the browser: "Don't even try HTTP, go straight to WebSocket"
+    transports: ['websocket'], 
+    // This prevents the "polling" attempt that causes the 404
+    upgrade: false, 
+    reconnection: true,
+    reconnectionAttempts: 5,
+    timeout: 20000,
+  });
     
     socketRef.current.on('connect', () => {
       console.log('✅ AI Service Connected:', AI_SERVICE_URL);
