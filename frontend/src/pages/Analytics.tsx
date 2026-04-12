@@ -10,6 +10,8 @@ import {
   Badge,
   LoadingSpinner 
 } from '../components/ui';
+// 1. IMPORT THE CONFIG
+import { API_BASE_URL } from '../config'; 
 
 // TypeScript interfaces
 interface Detection {
@@ -59,9 +61,10 @@ function Analytics() {
       setLoading(true);
       setError(null);
 
+      // 2. USE THE API_BASE_URL VARIABLE
       const [statsRes, detectionsRes] = await Promise.all([
-        axios.get('http://localhost:5000/api/analytics/stats'),
-        axios.get('http://localhost:5000/api/analytics/recent?limit=10')
+        axios.get(`${API_BASE_URL}/api/analytics/stats`),
+        axios.get(`${API_BASE_URL}/api/analytics/recent?limit=10`)
       ]);
 
       setStats(statsRes.data.stats);

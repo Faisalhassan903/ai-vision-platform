@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Card, Button, StatCard, Badge } from '../components/ui';
 import AlertToast from '../components/AlertToast';
+// 1. IMPORT YOUR CONFIG HERE
+import { SOCKET_URL } from '../config'; 
 
 interface Detection {
   class: string;
@@ -86,10 +88,11 @@ function LiveCamera() {
   };
 
   const connectSocket = () => {
-    socketRef.current = io('http://localhost:5000');
+    // 2. USE THE SOCKET_URL VARIABLE INSTEAD OF LOCALHOST STRING
+    socketRef.current = io(SOCKET_URL);
     
     socketRef.current.on('connect', () => {
-      console.log('✅ Connected');
+      console.log('✅ Connected to:', SOCKET_URL);
       setIsStreaming(true);
       startProcessing();
     });
@@ -105,12 +108,10 @@ function LiveCamera() {
       const alertWithId = { ...data.alert, id: Date.now(), priority: data.priority };
       setActiveAlerts(prev => [...prev, alertWithId]);
       
-      // Play alarm
       if (hasInteractedRef.current && (data.priority === 'critical' || data.alert.ruleName.includes('Person'))) {
         playAlarm();
       }
       
-      // Browser notification
       if (Notification.permission === 'granted') {
         new Notification(`${data.priority === 'critical' ? '🔴' : '⚠️'} ${data.alert.ruleName}`, {
           body: data.alert.message,
@@ -191,7 +192,6 @@ function LiveCamera() {
         ctx.lineWidth = level === 'critical' ? 4 : 2;
         ctx.strokeRect(x1, y1, w, h);
 
-        // Pulse for person
         if (det.class === 'person') {
           const alpha = 0.2 + 0.2 * Math.sin(Date.now() / 150);
           ctx.fillStyle = `rgba(239, 68, 68, ${alpha})`;
@@ -232,8 +232,6 @@ function LiveCamera() {
 
   return (
     <div className="min-h-screen bg-slate-900 p-6 text-white">
-      
-      {/* Alerts */}
       <div className="fixed top-4 right-4 z-50 space-y-3">
         {activeAlerts.map((alert) => (
           <AlertToast 
@@ -245,8 +243,6 @@ function LiveCamera() {
       </div>
 
       <div className="max-w-7xl mx-auto">
-        
-        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold">🎥 Live Security Feed</h1>
@@ -266,7 +262,6 @@ function LiveCamera() {
           </div>
         </div>
 
-        {/* Stats */}
         {isStreaming && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
             <StatCard icon="📊" value={fps} label="FPS" />
@@ -277,10 +272,7 @@ function LiveCamera() {
           </div>
         )}
 
-        {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Camera */}
           <div className="lg:col-span-2">
             <Card className="relative overflow-hidden bg-black p-0">
               <video ref={videoRef} className="hidden" playsInline muted />
@@ -293,7 +285,6 @@ function LiveCamera() {
             </Card>
           </div>
 
-          {/* Detections */}
           <div className="space-y-4">
             <Card title="🎯 Live Detections">
               {detections.length === 0 ? (
