@@ -6,3 +6,5 @@ torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cpu
 opencv-python-headless
 gunicorn
 numpy<2.0.0
+flask-socketio
+python-socketio
