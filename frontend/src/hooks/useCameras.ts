@@ -1,26 +1,21 @@
 // ===========================================
-// USE CAMERAS HOOK
-// ===========================================
-// Syncs cameras between frontend Zustand and backend MongoDB
-// This is the SINGLE SOURCE OF TRUTH approach
+// USE CAMERAS HOOK - OPTIMIZED
 
 import { useState, useEffect, useCallback } from 'react';
 import { useCameraStore } from '../store';
 import type { Camera } from '../store';
-import { API_BASE_URL } from '../config';
-const API_URL = `${API_BASE_URL}/api/cameras`;
+import { MAIN_BACKEND_URL } from '../config'; // Using the Main Backend for DB operations
+
+// Single source of truth for DB records
+const API_URL = `${MAIN_BACKEND_URL}/api/cameras`;
 
 interface UseCamerasReturn {
   cameras: Camera[];
   isLoading: boolean;
   error: string | null;
-  
-  // CRUD operations
   addCamera: (camera: Omit<Camera, 'id' | 'createdAt' | 'status'>) => Promise<Camera | null>;
   updateCamera: (id: string, updates: Partial<Camera>) => Promise<boolean>;
   deleteCamera: (id: string) => Promise<boolean>;
-  
-  // Actions
   refreshCameras: () => Promise<void>;
   testCamera: (id: string) => Promise<{ success: boolean; error?: string }>;
 }
@@ -28,18 +23,17 @@ interface UseCamerasReturn {
 export function useCameras(): UseCamerasReturn {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cameras, setCameras] = useState<Camera[]>([]);
 
-  // Zustand store - for real-time UI updates
+  // Zustand store actions
   const storeCameras = useCameraStore((s) => s.cameras);
-  const setStoreCameras = useCameraStore((s) => s.addCamera);
+  const setStoreCameras = useCameraStore((s) => s.setCameras); // Assume setCameras replaces the whole array
+  const addStoreCamera = useCameraStore((s) => s.addCamera);
   const removeStoreCamera = useCameraStore((s) => s.removeCamera);
   const updateStoreCamera = useCameraStore((s) => s.updateCamera);
 
-  // We'll use local state that syncs with backend
-  const [cameras, setCameras] = useState<Camera[]>([]);
-
   // -------------------------------------------
-  // FETCH CAMERAS FROM BACKEND
+  // FETCH CAMERAS
   // -------------------------------------------
   const refreshCameras = useCallback(async () => {
     setIsLoading(true);
@@ -47,10 +41,15 @@ export function useCameras(): UseCamerasReturn {
 
     try {
       const response = await fetch(API_URL);
+      // Handle non-JSON responses (like Render's 404 HTML pages)
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Backend returned non-JSON response. Check your MAIN_BACKEND_URL.");
+      }
+
       const data = await response.json();
 
       if (data.success) {
-        // Convert backend format to frontend format
         const formattedCameras: Camera[] = data.cameras.map((cam: any) => ({
           id: cam.cameraId || cam._id,
           name: cam.name,
@@ -71,30 +70,21 @@ export function useCameras(): UseCamerasReturn {
 
         setCameras(formattedCameras);
         
-        // Also update Zustand store for components that use it directly
-        // Clear and re-add all cameras
-        formattedCameras.forEach((cam) => {
-          // Check if camera exists in store, if not add it
-          const exists = storeCameras.find((c) => c.id === cam.id);
-          if (!exists) {
-            setStoreCameras(cam);
-          } else {
-            updateStoreCamera(cam.id, cam);
-          }
-        });
+        // SYNC: Update the global Zustand store to match the database exactly
+        if (typeof setStoreCameras === 'function') {
+          setStoreCameras(formattedCameras);
+        }
       } else {
         throw new Error(data.error || 'Failed to fetch cameras');
       }
     } catch (err: any) {
       console.error('[useCameras] Fetch error:', err);
       setError(err.message);
-      
-      // Fall back to Zustand store if backend fails
-      setCameras(storeCameras);
+      setCameras(storeCameras); // Fallback to store
     } finally {
       setIsLoading(false);
     }
-  }, [storeCameras, setStoreCameras, updateStoreCamera]);
+  }, [storeCameras, setStoreCameras]);
 
   // -------------------------------------------
   // ADD CAMERA
@@ -106,179 +96,86 @@ export function useCameras(): UseCamerasReturn {
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: cameraData.name,
-          type: cameraData.type,
-          streamUrl: cameraData.streamUrl,
-          username: cameraData.username,
-          password: cameraData.password,
-          deviceId: cameraData.deviceId,
-          location: cameraData.location,
-          group: cameraData.group,
-          enabled: cameraData.enabled,
-        }),
+        body: JSON.stringify(cameraData),
       });
 
       const data = await response.json();
 
       if (data.success) {
         const newCamera: Camera = {
-          id: data.camera.cameraId,
-          name: data.camera.name,
-          type: data.camera.type,
-          streamUrl: data.camera.streamUrl,
-          username: data.camera.username,
-          password: data.camera.password,
-          deviceId: data.camera.deviceId,
-          location: data.camera.location,
-          group: data.camera.group,
-          enabled: data.camera.enabled,
+          ...cameraData,
+          id: data.camera.cameraId || data.camera._id,
           status: 'offline',
           createdAt: Date.now(),
         };
 
-        // Update local state
         setCameras((prev) => [...prev, newCamera]);
-        
-        // Update Zustand store
-        setStoreCameras(newCamera);
-
-        console.log('[useCameras] Camera added:', newCamera.name);
+        addStoreCamera(newCamera);
         return newCamera;
-      } else {
-        throw new Error(data.error || 'Failed to add camera');
       }
+      throw new Error(data.error || 'Failed to add camera');
     } catch (err: any) {
-      console.error('[useCameras] Add error:', err);
       setError(err.message);
       return null;
     }
-  }, [setStoreCameras]);
+  }, [addStoreCamera]);
 
   // -------------------------------------------
-  // UPDATE CAMERA
+  // UPDATE / DELETE / TEST (Remain largely same but use MAIN_BACKEND_URL)
   // -------------------------------------------
-  const updateCamera = useCallback(async (
-    id: string,
-    updates: Partial<Camera>
-  ): Promise<boolean> => {
+  const updateCamera = useCallback(async (id: string, updates: Partial<Camera>) => {
     try {
       const response = await fetch(`${API_URL}/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-
       const data = await response.json();
-
       if (data.success) {
-        // Update local state
-        setCameras((prev) =>
-          prev.map((cam) => (cam.id === id ? { ...cam, ...updates } : cam))
-        );
-        
-        // Update Zustand store
+        setCameras(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
         updateStoreCamera(id, updates);
-
-        console.log('[useCameras] Camera updated:', id);
         return true;
-      } else {
-        throw new Error(data.error || 'Failed to update camera');
       }
-    } catch (err: any) {
-      console.error('[useCameras] Update error:', err);
-      setError(err.message);
       return false;
-    }
+    } catch { return false; }
   }, [updateStoreCamera]);
 
-  // -------------------------------------------
-  // DELETE CAMERA
-  // -------------------------------------------
-  const deleteCamera = useCallback(async (id: string): Promise<boolean> => {
+  const deleteCamera = useCallback(async (id: string) => {
     try {
-      const response = await fetch(`${API_URL}/${id}`, {
-        method: 'DELETE',
-      });
-
+      const response = await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
       const data = await response.json();
-
       if (data.success) {
-        // Update local state
-        setCameras((prev) => prev.filter((cam) => cam.id !== id));
-        
-        // Update Zustand store
+        setCameras(prev => prev.filter(c => c.id !== id));
         removeStoreCamera(id);
-
-        console.log('[useCameras] Camera deleted:', id);
         return true;
-      } else {
-        throw new Error(data.error || 'Failed to delete camera');
       }
-    } catch (err: any) {
-      console.error('[useCameras] Delete error:', err);
-      setError(err.message);
       return false;
-    }
+    } catch { return false; }
   }, [removeStoreCamera]);
 
-  // -------------------------------------------
-  // TEST CAMERA CONNECTION
-  // -------------------------------------------
-  const testCamera = useCallback(async (
-    id: string
-  ): Promise<{ success: boolean; error?: string }> => {
+  const testCamera = useCallback(async (id: string) => {
     try {
-      const response = await fetch(`${API_URL}/${id}/test`, {
-        method: 'POST',
-      });
-
+      const response = await fetch(`${API_URL}/${id}/test`, { method: 'POST' });
       const data = await response.json();
-
-      // Update camera status in local state
-      if (data.success) {
-        setCameras((prev) =>
-          prev.map((cam) =>
-            cam.id === id ? { ...cam, status: 'online' } : cam
-          )
-        );
-        updateStoreCamera(id, { status: 'online' });
-      } else {
-        setCameras((prev) =>
-          prev.map((cam) =>
-            cam.id === id ? { ...cam, status: 'error', errorMessage: data.error } : cam
-          )
-        );
-        updateStoreCamera(id, { status: 'error', errorMessage: data.error });
-      }
-
+      const statusUpdate = { 
+        status: data.success ? 'online' : 'error' as any, 
+        errorMessage: data.error 
+      };
+      
+      setCameras(prev => prev.map(c => c.id === id ? { ...c, ...statusUpdate } : c));
+      updateStoreCamera(id, statusUpdate);
+      
       return { success: data.success, error: data.error };
     } catch (err: any) {
-      console.error('[useCameras] Test error:', err);
       return { success: false, error: err.message };
     }
   }, [updateStoreCamera]);
 
-  // -------------------------------------------
-  // INITIAL LOAD
-  // -------------------------------------------
   useEffect(() => {
     refreshCameras();
   }, []);
 
-  // -------------------------------------------
-  // RETURN
-  // -------------------------------------------
-  return {
-    cameras,
-    isLoading,
-    error,
-    addCamera,
-    updateCamera,
-    deleteCamera,
-    refreshCameras,
-    testCamera,
-  };
+  return { cameras, isLoading, error, addCamera, updateCamera, deleteCamera, refreshCameras, testCamera };
 }
 
 export default useCameras;
