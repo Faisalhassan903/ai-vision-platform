@@ -5,15 +5,14 @@ import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import { Button } from '../components/ui';
 import { useAlerts } from '../hooks/useAlerts';
 
-// Constants for tuning
 const DETECTION_INTERVAL = 4; 
-const ALERT_THRESHOLD = 0.75;
+const ALERT_THRESHOLD = 0.70;
 const COOLDOWN_MS = 10000; 
 
 const LiveCamera: React.FC = () => {
   const { triggerNewAlert } = useAlerts();
   
-  // DOM & Logic Refs
+  // Refs for persistent hardware/AI state
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
@@ -21,14 +20,14 @@ const LiveCamera: React.FC = () => {
   const lastAlertRef = useRef<number>(0);
   const frameCounter = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
+  const isInitializing = useRef(false); // Prevents double-start "flicker"
 
-  // State
   const [isLive, setIsLive] = useState(false);
   const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'active' | 'error'>('idle');
-  const [debugInfo, setDebugInfo] = useState({ backend: '', fps: 0 });
+  const [debugInfo, setDebugInfo] = useState({ backend: '' });
 
   /**
-   * STOP CAMERA: Properly kills hardware tracks
+   * STOP: Cleanup hardware properly
    */
   const stopCamera = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -44,34 +43,38 @@ const LiveCamera: React.FC = () => {
 
     setIsLive(false);
     setInitStatus('idle');
-    console.log("🎥 Camera Hardware Released");
+    isInitializing.current = false;
   }, []);
 
   /**
-   * START CAMERA & AI: Initializes WASM and Neural Network
+   * START: The Neural Hub
    */
   const startCamera = async () => {
+    if (isInitializing.current || isLive) return; // Guard
+    isInitializing.current = true;
+
     try {
       setInitStatus('loading');
 
-      // 1. Configure WASM CDN (Fixes the Vercel 404)
+      // 1. WASM Setup (CDN Fallback)
       const version = tf.version.tfjs;
       await tfwasm.setWasmPaths(`https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@${version}/dist/`);
       
-      // 2. Select best available Backend
-      try {
-        await tf.setBackend('wasm');
-      } catch {
-        await tf.setBackend('webgl');
+      if (tf.getBackend() !== 'wasm') {
+        try {
+          await tf.setBackend('wasm');
+        } catch {
+          await tf.setBackend('webgl');
+        }
       }
       await tf.ready();
-      setDebugInfo(prev => ({ ...prev, backend: tf.getBackend() }));
+      setDebugInfo({ backend: tf.getBackend() });
 
-      // 3. Load Model & Hardware simultaneously
+      // 2. Load Model & Stream
       const [loadedModel, stream] = await Promise.all([
         cocoSsd.load({ base: 'lite_mobilenet_v2' }),
         navigator.mediaDevices.getUserMedia({ 
-          video: { width: 1280, height: 720, facingMode: 'user' },
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false 
         })
       ]);
@@ -81,20 +84,20 @@ const LiveCamera: React.FC = () => {
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          setIsLive(true);
-          setInitStatus('active');
-          videoRef.current?.play();
-        };
+        // Wait for video to be ready before setting status to 'active'
+        await videoRef.current.play();
+        setIsLive(true);
+        setInitStatus('active');
       }
     } catch (error) {
-      console.error("🚀 System Boot Failure:", error);
+      console.error("System Boot Failure:", error);
       setInitStatus('error');
+      isInitializing.current = false;
     }
   };
 
   /**
-   * INFERENCE LOOP: The "Brain" of the operation
+   * DETECTION: Analytics & Alerting
    */
   const runDetection = useCallback(async () => {
     if (!isLive || !videoRef.current || !modelRef.current) return;
@@ -111,32 +114,38 @@ const LiveCamera: React.FC = () => {
       const ctx = canvasRef.current?.getContext('2d');
 
       if (ctx && canvasRef.current && videoRef.current) {
-        // Sync canvas to video dimensions
         canvasRef.current.width = videoRef.current.videoWidth;
         canvasRef.current.height = videoRef.current.videoHeight;
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
         predictions.forEach(p => {
           const [x, y, w, h] = p.bbox;
-          // UI Visuals
-          ctx.strokeStyle = p.class === 'person' ? '#ef4444' : '#22c55e';
-          ctx.lineWidth = 3;
+          const isPerson = p.class === 'person';
+          
+          ctx.strokeStyle = isPerson ? '#ff0000' : '#00ff00';
+          ctx.lineWidth = 2;
           ctx.strokeRect(x, y, w, h);
-          ctx.fillStyle = p.class === 'person' ? '#ef4444' : '#22c55e';
-          ctx.fillText(`${p.class.toUpperCase()} ${Math.round(p.score * 100)}%`, x, y > 10 ? y - 5 : 10);
+          
+          ctx.fillStyle = isPerson ? '#ff0000' : '#00ff00';
+          ctx.font = 'bold 14px Arial';
+          ctx.fillText(`${p.class.toUpperCase()} ${Math.round(p.score * 100)}%`, x, y > 15 ? y - 5 : 15);
         });
 
-        // Incident logic
         const person = predictions.find(p => p.class === 'person' && p.score > ALERT_THRESHOLD);
-        const now = Date.now();
-
-        if (person && (now - lastAlertRef.current > COOLDOWN_MS)) {
-          lastAlertRef.current = now;
+        if (person && (Date.now() - lastAlertRef.current > COOLDOWN_MS)) {
+          lastAlertRef.current = Date.now();
+          
+          // Complete Payload for Analytics Mission
           triggerNewAlert({
-            ruleName: "PERSON_DETECTED",
+            ruleName: "HUMAN_DETECTION",
             priority: 'critical',
-            message: `Intruder detected with ${Math.round(person.score * 100)}% confidence`,
-            analytics: { device_id: "NODE-01", primary_target: "person", confidence_avg: person.score },
+            message: `Unidentified person detected at entrance.`,
+            cameraName: "Main Node 01",
+            analytics: {
+              device_id: "VISION-01",
+              primary_target: "person",
+              confidence_avg: person.score
+            },
             detections: predictions.map(d => ({ class: d.class, confidence: d.score }))
           });
         }
@@ -147,39 +156,44 @@ const LiveCamera: React.FC = () => {
     }
   }, [isLive, triggerNewAlert]);
 
-  // Lifecycle Management
   useEffect(() => {
-    if (isLive) rafRef.current = requestAnimationFrame(runDetection);
-    return () => stopCamera(); // Cleanup on exit
+    if (isLive) {
+      rafRef.current = requestAnimationFrame(runDetection);
+    }
+    return () => {
+      // ONLY stop if the component is actually unmounting
+      if (!isLive && !isInitializing.current) stopCamera();
+    };
   }, [isLive, runDetection, stopCamera]);
 
   return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <div className="flex items-center justify-between bg-white border p-4 rounded-xl shadow-sm">
+    <div className="max-w-5xl mx-auto p-4 space-y-4">
+      <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-slate-200">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Vision Control Node</h2>
-          <p className="text-sm text-slate-500 font-mono">Backend: {debugInfo.backend.toUpperCase()}</p>
+          <h1 className="text-xl font-bold text-slate-900">Live AI Vision</h1>
+          <p className="text-xs font-mono text-slate-500 uppercase">Engine: {debugInfo.backend || 'IDLE'}</p>
         </div>
-        
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           {!isLive ? (
-            <Button onClick={startCamera} disabled={initStatus === 'loading'} className="bg-blue-600 hover:bg-blue-700">
-              {initStatus === 'loading' ? 'Configuring AI...' : 'Start Node'}
+            <Button onClick={startCamera} disabled={initStatus === 'loading'}>
+              {initStatus === 'loading' ? 'Loading AI...' : 'Initialize Node'}
             </Button>
           ) : (
-            <Button onClick={stopCamera} variant="destructive">Stop Node</Button>
+            <Button onClick={stopCamera} variant="destructive">Shutdown Node</Button>
           )}
         </div>
       </div>
 
-      <div className="relative aspect-video bg-black rounded-2xl overflow-hidden border-4 border-slate-200">
+      <div className="relative aspect-video bg-slate-900 rounded-xl overflow-hidden shadow-2xl">
         <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" muted playsInline />
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
         
         {initStatus === 'loading' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 text-white">
-            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
-            <p className="text-lg font-medium">Mounting Neural Engine...</p>
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80">
+            <div className="text-center">
+              <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-white font-medium">Downloading Neural Weights...</p>
+            </div>
           </div>
         )}
       </div>
