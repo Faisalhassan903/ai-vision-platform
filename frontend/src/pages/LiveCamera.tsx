@@ -7,66 +7,95 @@ import { API_BASE_URL } from '../config';
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 const DETECTION_EVERY_N_FRAMES = 5;
-const ALERT_COOLDOWN_MS        = 15000; // 15s between alerts
-const POST_TIMEOUT_MS          = 8000;  // 8s max — prevents infinite hang
+const ALERT_COOLDOWN_MS        = 15000;
+const POST_TIMEOUT_MS          = 30000; // 30s — enough for Render cold start
+const KEEPALIVE_INTERVAL_MS    = 8 * 60 * 1000; // ping every 8 min to prevent sleep
 
 const LiveCamera: React.FC = () => {
-  const videoRef      = useRef<HTMLVideoElement>(null);
-  const canvasRef     = useRef<HTMLCanvasElement>(null);
-  const modelRef      = useRef<cocoSsd.ObjectDetection | null>(null);
-  const streamRef     = useRef<MediaStream | null>(null);
-  const rafRef        = useRef<number | null>(null);
-  const frameCountRef = useRef<number>(0);
-  const isRunningRef  = useRef<boolean>(false);
-  const lastAlertRef  = useRef<number>(0);
-  const isSendingRef  = useRef<boolean>(false);
+  const videoRef       = useRef<HTMLVideoElement>(null);
+  const canvasRef      = useRef<HTMLCanvasElement>(null);
+  const modelRef       = useRef<cocoSsd.ObjectDetection | null>(null);
+  const streamRef      = useRef<MediaStream | null>(null);
+  const rafRef         = useRef<number | null>(null);
+  const keepAliveRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const frameCountRef  = useRef<number>(0);
+  const isRunningRef   = useRef<boolean>(false);
+  const lastAlertRef   = useRef<number>(0);
+  const isSendingRef   = useRef<boolean>(false);
+  const rulesRef       = useRef<any[]>([]);
+  const backendReadyRef = useRef<boolean>(false); // tracks if backend responded
 
-  // Rules loaded from your rule builder DB
-  const rulesRef      = useRef<any[]>([]);
-  const rulesLoadedRef = useRef<boolean>(false);
+  const [isLive,       setIsLive]       = useState(false);
+  const [status,       setStatus]       = useState('IDLE');
+  const [objects,      setObjects]      = useState(0);
+  const [lastAlert,    setLastAlert]    = useState<string | null>(null);
+  const [backendState, setBackendState] = useState<'unknown' | 'waking' | 'ready' | 'offline'>('unknown');
 
-  const [isLive,    setIsLive]    = useState(false);
-  const [status,    setStatus]    = useState('IDLE');
-  const [objects,   setObjects]   = useState(0);
-  const [lastAlert, setLastAlert] = useState<string | null>(null);
-
-  // ── LOAD RULES FROM YOUR RULE BUILDER ────────────────────────────────────────
-  const loadRules = useCallback(async () => {
+  // ── WAKE UP RENDER BACKEND ───────────────────────────────────────────────────
+  const wakeBackend = useCallback(async () => {
+    setBackendState('waking');
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/alerts/rules`, { timeout: 5000 });
-      const rules = res.data?.rules || res.data || [];
-      rulesRef.current = rules;
-      rulesLoadedRef.current = true;
-      console.log(`✅ Loaded ${rules.length} rules from rule builder`);
+      await axios.get(`${API_BASE_URL}/health`, { timeout: 60000 }); // 60s for cold start
+      backendReadyRef.current = true;
+      setBackendState('ready');
+      console.log('✅ Backend awake');
     } catch {
-      // If rules endpoint doesn't exist yet, fall back to default
-      console.warn('⚠️ Rules endpoint not available — using default: detect person > 50%');
-      rulesRef.current = [{
-        ruleName:  'DEFAULT_PERSON_DETECTION',
-        targetClass: 'person',
-        threshold: 0.50,
-        priority:  'critical',
-        enabled:   true,
-      }];
-      rulesLoadedRef.current = true;
+      backendReadyRef.current = false;
+      setBackendState('offline');
+      console.warn('⚠️ Backend did not respond — alerts will retry');
     }
   }, []);
 
-  // ── EVALUATE RULES AGAINST PREDICTIONS ───────────────────────────────────────
-  // Returns the first matching rule + the detection that triggered it, or null
+  // ── KEEP ALIVE PING ──────────────────────────────────────────────────────────
+  const startKeepAlive = useCallback(() => {
+    if (keepAliveRef.current) clearInterval(keepAliveRef.current);
+    keepAliveRef.current = setInterval(async () => {
+      try {
+        await axios.get(`${API_BASE_URL}/health`, { timeout: 5000 });
+        backendReadyRef.current = true;
+        setBackendState('ready');
+      } catch {
+        backendReadyRef.current = false;
+        setBackendState('offline');
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+  }, []);
+
+  const stopKeepAlive = useCallback(() => {
+    if (keepAliveRef.current) {
+      clearInterval(keepAliveRef.current);
+      keepAliveRef.current = null;
+    }
+  }, []);
+
+  // ── LOAD RULES ───────────────────────────────────────────────────────────────
+  const loadRules = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/alerts/rules`, { timeout: 10000 });
+      const rules = res.data?.rules || res.data || [];
+      rulesRef.current = rules;
+      console.log(`✅ Loaded ${rules.length} rules`);
+    } catch {
+      rulesRef.current = [{
+        ruleName:    'DEFAULT_PERSON_DETECTION',
+        targetClass: 'person',
+        threshold:   0.50,
+        priority:    'critical',
+        enabled:     true,
+      }];
+      console.warn('⚠️ Using default rule: person > 50%');
+    }
+  }, []);
+
+  // ── EVALUATE RULES ───────────────────────────────────────────────────────────
   const evaluateRules = useCallback((predictions: cocoSsd.DetectedObject[]) => {
-    const rules = rulesRef.current;
-
-    for (const rule of rules) {
-      if (!rule.enabled && rule.enabled !== undefined) continue;
-
+    for (const rule of rulesRef.current) {
+      if (rule.enabled === false) continue;
       const targetClass = rule.targetClass || rule.target_class || rule.class || 'person';
       const threshold   = rule.threshold   || rule.confidence  || 0.50;
-
       const match = predictions.find(
         p => p.class.toLowerCase() === targetClass.toLowerCase() && p.score >= threshold
       );
-
       if (match) return { rule, detection: match, allDetections: predictions };
     }
     return null;
@@ -86,12 +115,13 @@ const LiveCamera: React.FC = () => {
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 1.2);
-    } catch { /* AudioContext blocked */ }
+    } catch { /* blocked */ }
   }, []);
 
   // ── STOP CAMERA ──────────────────────────────────────────────────────────────
   const stopCamera = useCallback(() => {
     isRunningRef.current = false;
+    stopKeepAlive();
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
@@ -105,7 +135,7 @@ const LiveCamera: React.FC = () => {
     setIsLive(false);
     setStatus('STOPPED');
     setObjects(0);
-  }, []);
+  }, [stopKeepAlive]);
 
   // ── SEND ALERT ────────────────────────────────────────────────────────────────
   const sendAlert = useCallback(async (
@@ -113,22 +143,18 @@ const LiveCamera: React.FC = () => {
     detection: cocoSsd.DetectedObject,
     allDetections: cocoSsd.DetectedObject[]
   ) => {
-    // ── GUARD 1: Already sending ──────────────────────────────────────────────
     if (isSendingRef.current) return;
 
-    // ── GUARD 2: Cooldown ─────────────────────────────────────────────────────
     const now = Date.now();
     if (now - lastAlertRef.current < ALERT_COOLDOWN_MS) return;
 
-    // ── LOCK ──────────────────────────────────────────────────────────────────
     isSendingRef.current = true;
     lastAlertRef.current = now;
 
-    // Safety release — if something goes wrong, unlock after 10s max
+    // Safety release after 35s no matter what
     const safetyTimer = setTimeout(() => {
       isSendingRef.current = false;
-      console.warn('⚠️ Safety timer released isSendingRef');
-    }, 10000);
+    }, 35000);
 
     setStatus('⚠ INTRUDER DETECTED');
     playAlarm();
@@ -136,7 +162,7 @@ const LiveCamera: React.FC = () => {
     const payload = {
       ruleName:   rule.ruleName   || rule.name || 'DETECTION_RULE',
       priority:   rule.priority   || 'critical',
-      message:    rule.message    || `${detection.class.toUpperCase()} detected. Confidence: ${Math.round(detection.score * 100)}%`,
+      message:    `${detection.class.toUpperCase()} detected. Confidence: ${Math.round(detection.score * 100)}%`,
       cameraName: rule.cameraName || 'Sentry_Node_01',
       analytics: {
         device_id:      'SENTRY_ALPHA',
@@ -156,53 +182,59 @@ const LiveCamera: React.FC = () => {
     };
 
     try {
+      // If backend was offline, try waking it first
+      if (!backendReadyRef.current) {
+        setLastAlert('⏳ Waking backend...');
+        await wakeBackend();
+      }
+
       const res = await axios.post(`${API_BASE_URL}/api/alerts`, payload, {
-        timeout: POST_TIMEOUT_MS,  // ← THE FIX: prevents infinite hang
+        timeout: POST_TIMEOUT_MS,
       });
 
       const alertId = res.data?.alert?._id || 'saved';
-      const msg     = `✅ Alert: ${payload.ruleName} | ${Math.round(detection.score * 100)}% | ID: ${alertId}`;
-      console.log(msg);
-      setLastAlert(msg);
+      backendReadyRef.current = true;
+      setBackendState('ready');
+      setLastAlert(`✅ Alert saved | ${rule.ruleName || 'RULE'} | ${Math.round(detection.score * 100)}% | ${alertId}`);
+      console.log('✅ Alert saved:', alertId);
 
     } catch (err: any) {
       const detail = err.response?.data?.detail || err.response?.data?.error || err.message;
-      console.error(`❌ Alert POST failed: ${err.response?.status || 'network'} — ${detail}`);
-      setLastAlert(`❌ Failed: ${detail}`);
+      setLastAlert(`❌ Alert failed: ${detail}`);
+      console.error('❌ Alert POST failed:', detail);
+
+      // Mark backend as offline so next attempt wakes it first
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        backendReadyRef.current = false;
+        setBackendState('offline');
+      }
     } finally {
-      clearTimeout(safetyTimer);         // clear safety timer — we finished normally
-      isSendingRef.current = false;      // ← GUARANTEED UNLOCK
+      clearTimeout(safetyTimer);
+      isSendingRef.current = false;
       setTimeout(() => {
         if (isRunningRef.current) setStatus('LIVE');
       }, 5000);
     }
-  }, [playAlarm]);
+  }, [playAlarm, wakeBackend]);
 
   // ── DRAW ──────────────────────────────────────────────────────────────────────
-  const drawDetections = (
-    ctx: CanvasRenderingContext2D,
-    predictions: cocoSsd.DetectedObject[]
-  ) => {
+  const drawDetections = (ctx: CanvasRenderingContext2D, predictions: cocoSsd.DetectedObject[]) => {
     predictions.forEach(p => {
       const [x, y, w, h] = p.bbox;
       const isPerson = p.class === 'person';
       const color    = isPerson ? '#FF3333' : '#00FF88';
       const label    = `${p.class.toUpperCase()} ${Math.round(p.score * 100)}%`;
-
       ctx.strokeStyle = color;
       ctx.lineWidth   = isPerson ? 3 : 2;
       ctx.strokeRect(x, y, w, h);
-
-      // Corner accents
       const cl = 12;
       ctx.lineWidth = isPerson ? 4 : 2;
       ctx.beginPath();
-      ctx.moveTo(x + cl, y);           ctx.lineTo(x, y);       ctx.lineTo(x, y + cl);
-      ctx.moveTo(x + w - cl, y);       ctx.lineTo(x + w, y);   ctx.lineTo(x + w, y + cl);
-      ctx.moveTo(x, y + h - cl);       ctx.lineTo(x, y + h);   ctx.lineTo(x + cl, y + h);
-      ctx.moveTo(x + w - cl, y + h);   ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cl);
+      ctx.moveTo(x + cl, y);         ctx.lineTo(x, y);         ctx.lineTo(x, y + cl);
+      ctx.moveTo(x + w - cl, y);     ctx.lineTo(x + w, y);     ctx.lineTo(x + w, y + cl);
+      ctx.moveTo(x, y + h - cl);     ctx.lineTo(x, y + h);     ctx.lineTo(x + cl, y + h);
+      ctx.moveTo(x + w - cl, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cl);
       ctx.stroke();
-
       ctx.font = 'bold 12px "Courier New", monospace';
       const tw = ctx.measureText(label).width;
       ctx.fillStyle = isPerson ? 'rgba(255,51,51,0.9)' : 'rgba(0,255,136,0.9)';
@@ -215,7 +247,6 @@ const LiveCamera: React.FC = () => {
   // ── DETECTION LOOP ────────────────────────────────────────────────────────────
   const detectionLoop = useCallback(async () => {
     if (!isRunningRef.current) return;
-
     frameCountRef.current++;
 
     if (frameCountRef.current % DETECTION_EVERY_N_FRAMES === 0) {
@@ -226,7 +257,6 @@ const LiveCamera: React.FC = () => {
       if (video && canvas && model && video.readyState === 4 && video.videoWidth > 0) {
         try {
           const predictions = await model.detect(video, 6, 0.30);
-
           const ctx = canvas.getContext('2d');
           if (ctx) {
             canvas.width  = video.videoWidth;
@@ -234,15 +264,10 @@ const LiveCamera: React.FC = () => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             drawDetections(ctx, predictions);
           }
-
           setObjects(predictions.length);
 
-          // ── RULE ENGINE ──────────────────────────────────────────────────────
-          // Evaluate your rules from the rule builder against live predictions
           const match = evaluateRules(predictions);
-          if (match) {
-            sendAlert(match.rule, match.detection, match.allDetections);
-          }
+          if (match) sendAlert(match.rule, match.detection, match.allDetections);
 
         } catch (err: any) {
           console.warn('Frame skipped:', err.message);
@@ -259,11 +284,15 @@ const LiveCamera: React.FC = () => {
   const startCamera = async () => {
     if (isRunningRef.current) return;
     try {
+      isSendingRef.current  = false; // reset lock
+      backendReadyRef.current = false;
+
+      setStatus('WAKING BACKEND...');
+
+      // Wake backend + load rules in parallel
+      await Promise.all([wakeBackend(), loadRules()]);
+
       setStatus('STARTING...');
-
-      // Load rules from your rule builder on every start
-      await loadRules();
-
       try { await tf.setBackend('webgl'); } catch { await tf.setBackend('cpu'); }
       await tf.ready();
 
@@ -272,7 +301,6 @@ const LiveCamera: React.FC = () => {
         audio: false,
       });
       streamRef.current = stream;
-
       if (!videoRef.current) throw new Error('Video ref not ready');
       videoRef.current.srcObject = stream;
 
@@ -287,12 +315,13 @@ const LiveCamera: React.FC = () => {
         modelRef.current = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
       }
 
-      isRunningRef.current = true;
+      // Start keep-alive to prevent backend sleeping again
+      startKeepAlive();
+
+      isRunningRef.current  = true;
       frameCountRef.current = 0;
-      isSendingRef.current  = false; // reset lock on fresh start
       setIsLive(true);
       setStatus('LIVE');
-
       rafRef.current = requestAnimationFrame(detectionLoop);
 
     } catch (err: any) {
@@ -301,9 +330,16 @@ const LiveCamera: React.FC = () => {
     }
   };
 
-  useEffect(() => { return () => stopCamera(); }, [stopCamera]);
+  useEffect(() => { return () => { stopCamera(); stopKeepAlive(); }; }, [stopCamera, stopKeepAlive]);
 
   // ── RENDER ────────────────────────────────────────────────────────────────────
+  const backendBadge = {
+    unknown: { text: 'BACKEND: UNKNOWN',  cls: 'text-slate-500' },
+    waking:  { text: 'BACKEND: WAKING…',  cls: 'text-yellow-400 animate-pulse' },
+    ready:   { text: 'BACKEND: ONLINE',   cls: 'text-green-400' },
+    offline: { text: 'BACKEND: OFFLINE',  cls: 'text-red-400' },
+  }[backendState];
+
   return (
     <div className="min-h-screen bg-slate-950 p-6 text-white font-mono">
 
@@ -314,12 +350,16 @@ const LiveCamera: React.FC = () => {
             <span className="text-red-500">SENTRY</span>
             <span className="text-white"> HUB v4.0</span>
           </h1>
-          <p className={`text-xs mt-1 ${
-            status.includes('INTRUDER') ? 'text-red-400 animate-pulse' :
-            status === 'LIVE'           ? 'text-green-400' :
-            status.includes('ERROR')    ? 'text-red-500'  : 'text-slate-500'
-          }`}>◆ {status}</p>
+          <div className="flex items-center gap-3 mt-1">
+            <p className={`text-xs ${
+              status.includes('INTRUDER') ? 'text-red-400 animate-pulse' :
+              status === 'LIVE'           ? 'text-green-400' :
+              status.includes('ERROR')    ? 'text-red-500'  : 'text-slate-500'
+            }`}>◆ {status}</p>
+            <span className={`text-[10px] ${backendBadge.cls}`}>| {backendBadge.text}</span>
+          </div>
         </div>
+
         <div className="flex items-center gap-4">
           {isLive && (
             <span className="text-xs text-slate-400">
@@ -336,7 +376,7 @@ const LiveCamera: React.FC = () => {
                 : 'bg-green-600 hover:bg-green-500 text-black'
             }`}
           >
-            {status.includes('ING') ? 'INITIALIZING...' : isLive ? '⏹ STOP' : '▶ START'}
+            {status.includes('ING') ? status : isLive ? '⏹ STOP' : '▶ START'}
           </Button>
         </div>
       </div>
@@ -372,6 +412,9 @@ const LiveCamera: React.FC = () => {
                 <div className="h-full bg-green-500 animate-pulse w-full" />
               </div>
               <p className="text-green-500 text-xs tracking-widest animate-pulse">{status}</p>
+              {status === 'WAKING BACKEND...' && (
+                <p className="text-slate-500 text-[10px] mt-2">Render free tier — may take up to 60s on first load</p>
+              )}
             </div>
           )}
 
@@ -384,21 +427,20 @@ const LiveCamera: React.FC = () => {
           )}
         </div>
 
-        {/* Last alert status */}
+        {/* Last alert */}
         {lastAlert && (
           <div className={`mt-3 px-3 py-2 rounded text-xs border ${
-            lastAlert.includes('✅')
-              ? 'bg-green-950 border-green-700 text-green-300'
-              : 'bg-red-950 border-red-700 text-red-300'
+            lastAlert.includes('✅') ? 'bg-green-950 border-green-700 text-green-300' :
+            lastAlert.includes('⏳') ? 'bg-yellow-950 border-yellow-700 text-yellow-300' :
+            'bg-red-950 border-red-700 text-red-300'
           }`}>
             {lastAlert}
           </div>
         )}
 
-        {/* Footer */}
         <div className="flex justify-between text-[10px] text-slate-600 mt-2 px-1">
-          <span>RULES: {rulesRef.current.length} loaded</span>
-          <span>COOLDOWN: {ALERT_COOLDOWN_MS / 1000}s | TIMEOUT: {POST_TIMEOUT_MS / 1000}s</span>
+          <span>RULES: {rulesRef.current.length} loaded | COOLDOWN: {ALERT_COOLDOWN_MS / 1000}s</span>
+          <span>KEEP-ALIVE: every {KEEPALIVE_INTERVAL_MS / 60000} min</span>
         </div>
       </div>
     </div>
