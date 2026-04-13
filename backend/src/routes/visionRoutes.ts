@@ -8,87 +8,78 @@ import Detection from '../models/Detection';
 
 const router = express.Router();
 
-// --- MULTER ---
+// 🔥 USE ENV VARIABLE
+const AI_URL = process.env.AI_SERVICE_URL;
+
+// Multer config
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'uploads/'),
   filename: (req, file, cb) => {
-    cb(null, Date.now() + '-' + file.originalname);
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + unique + path.extname(file.originalname));
   }
 });
 
 const upload = multer({ storage });
 
-// --- DETECT ---
+// ─────────────────────────────
+// 🚀 DETECT ROUTE (FIXED)
+// ─────────────────────────────
 router.post('/detect', upload.single('image'), async (req: Request, res: Response) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'No file' });
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image uploaded' });
+    }
 
-    const AI_URL = process.env.AI_SERVICE_URL;
-    if (!AI_URL) throw new Error("AI_SERVICE_URL missing");
+    if (!AI_URL) {
+      throw new Error('AI_SERVICE_URL missing');
+    }
+
+    console.log('📤 Sending to AI:', AI_URL);
 
     const formData = new FormData();
     formData.append('image', fs.createReadStream(req.file.path));
 
     const aiResponse = await axios.post(`${AI_URL}/detect`, formData, {
-      headers: formData.getHeaders()
+      headers: formData.getHeaders(),
+      timeout: 20000
     });
 
     fs.unlinkSync(req.file.path);
 
-    const detections = aiResponse.data.detections;
+    const data = aiResponse.data;
 
-    // SAVE DETECTION
-    const record = await Detection.create({
+    // 💾 Save to DB
+    const record = new Detection({
       timestamp: new Date(),
       cameraId: 'cam_01',
       cameraName: 'Main Camera',
-      detections,
-      totalObjects: aiResponse.data.total_objects
+      detections: data.detections || [],
+      totalObjects: data.total_objects || 0,
+      alertSent: false
     });
 
-    // --- RULE ENGINE ---
-    const Alert = require('../models/Alert').default;
-    const AlertRule = require('../models/AlertRule').default;
+    await record.save();
 
-    const rules = await AlertRule.find({ enabled: true });
-
-    for (const rule of rules) {
-      const match = detections.find((d: any) =>
-        rule.conditions.objectClasses.includes(d.class) &&
-        d.confidence >= rule.conditions.minConfidence
-      );
-
-      if (match) {
-        const alert = await Alert.create({
-          ruleName: rule.name,
-          priority: rule.priority,
-          message: `Detected ${match.class}`,
-          timestamp: new Date(),
-          detections: [match]
-        });
-
-        const io = req.app.get('socketio');
-        if (io) io.emit('new-incident', alert);
-
-        console.log("🚨 ALERT TRIGGERED:", rule.name);
-        break;
-      }
-    }
+    console.log('💾 Saved detection:', record._id);
 
     res.json({
       success: true,
-      detections,
+      ...data,
       savedId: record._id
     });
 
-  } catch (err: any) {
-    console.error(err.message);
+  } catch (error: any) {
+    console.error('❌ DETECT ERROR:', error.message);
 
     if (req.file) {
       try { fs.unlinkSync(req.file.path); } catch {}
     }
 
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: 'Detection failed',
+      details: error.message
+    });
   }
 });
 
