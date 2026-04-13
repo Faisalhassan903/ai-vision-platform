@@ -11,6 +11,7 @@ import alertRoutes from './routes/alertRoutes';
 const cameraRoutes = require('./routes/cameraRoutes').default;
 import authRoutes from './routes/authRoutes';
 import visionRoutes from './routes/visionRoutes';
+import analyticsRoutes from './routes/analyticsRoutes';
 
 dotenv.config();
 
@@ -54,6 +55,7 @@ app.use('/api/alerts', alertRoutes);
 app.use('/api/cameras', cameraRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/vision', visionRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 app.get('/health', (req, res) => {
   res.status(200).json({ 
