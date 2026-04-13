@@ -1,84 +1,97 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-require("dotenv/config"); // Shorthand for import + config()
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const http_1 = require("http");
 const socket_io_1 = require("socket.io");
-// Routes
-const visionRoutes_1 = __importDefault(require("./routes/visionRoutes"));
-const analyticsRoutes_1 = __importDefault(require("./routes/analyticsRoutes"));
+const dotenv_1 = __importDefault(require("dotenv"));
+const path_1 = __importDefault(require("path"));
+// Route Imports
 const alertRoutes_1 = __importDefault(require("./routes/alertRoutes"));
-const authRoutes_1 = __importDefault(require("./routes/authRoutes"));
-const liveRoutes_1 = require("./routes/liveRoutes");
-// The Troubleshooting Import
-// If this still fails, try renaming the actual file to 'cam-routes.ts' 
-// and updating the string below to match.
 const cameraRoutes_1 = __importDefault(require("./routes/cameraRoutes"));
-// Services
-const database_1 = __importDefault(require("./config/database"));
-const rtspProxy_1 = require("./services/rtspProxy");
+const authRoutes_1 = __importDefault(require("./routes/authRoutes"));
+const visionRoutes_1 = __importDefault(require("./routes/visionRoutes"));
+dotenv_1.default.config();
 const app = (0, express_1.default)();
-const PORT = process.env.PORT || 10000; // Use 10000 for Render compatibility
 const httpServer = (0, http_1.createServer)(app);
-// Socket.io Setup
+const PORT = process.env.PORT || 10000;
+// --- 1. SOCKET.IO OPTIMIZATION ---
 const io = new socket_io_1.Server(httpServer, {
     cors: {
-        origin: '*', // Set to '*' for easier testing on Render
-        methods: ['GET', 'POST']
-    }
+        origin: process.env.FRONTEND_URL || "*", // Secure this in production
+        methods: ["GET", "POST"],
+        credentials: true
+    },
+    pingTimeout: 60000, // Handle slow mobile/render connections
+    pingInterval: 25000,
+    transports: ['websocket', 'polling'] // Allow fallback but prefer WS
 });
-// Initialize Services
-rtspProxy_1.rtspProxy.initialize(io);
-(0, liveRoutes_1.setupLiveRoutes)(io);
-// Middleware
-app.use((0, cors_1.default)());
-app.use(express_1.default.json());
-// Base Route
-app.get('/', (req, res) => {
-    res.json({
-        status: 'online',
-        message: 'AI Vision Platform Backend is running!'
+app.set('socketio', io);
+// --- 2. MIDDLEWARE ---
+app.use((0, cors_1.default)({
+    origin: process.env.FRONTEND_URL || "*",
+    credentials: true
+}));
+app.use(express_1.default.json({ limit: '10mb' })); // Support image uploads
+app.use(express_1.default.urlencoded({ extended: true }));
+// Serve static uploads if you're storing images locally
+app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '../uploads')));
+// --- 3. SOCKET EVENTS ---
+io.on('connection', (socket) => {
+    console.log(`📡 New Client: ${socket.id}`);
+    socket.on('disconnect', (reason) => {
+        console.log(`🔌 Client Left: ${socket.id} (${reason})`);
     });
 });
-// Route Definitions
-app.use('/api/vision', visionRoutes_1.default);
-app.use('/api/analytics', analyticsRoutes_1.default);
+// --- 4. ROUTE REGISTRATION ---
 app.use('/api/alerts', alertRoutes_1.default);
 app.use('/api/cameras', cameraRoutes_1.default);
 app.use('/api/auth', authRoutes_1.default);
-// Server Startup
-httpServer.listen(PORT, () => __awaiter(void 0, void 0, void 0, function* () {
-    console.log(`✅ Server running on port ${PORT}`);
-    // Database Connection
-    try {
-        yield (0, database_1.default)();
-    }
-    catch (dbError) {
-        console.error('❌ Database connection failed during startup');
-    }
-    // Telegram Bot Initialization (Delayed to ensure DB is ready)
-    setTimeout(() => {
-        try {
-            const { IntelligentTelegramBot } = require('./services/IntelligentTelegramBot');
-            if (IntelligentTelegramBot && typeof IntelligentTelegramBot.initialize === 'function') {
-                IntelligentTelegramBot.initialize();
-            }
-        }
-        catch (error) {
-            console.error('❌ Telegram Bot failed to initialize:', error.message);
-        }
-    }, 3000);
-}));
+app.use('/api/vision', visionRoutes_1.default);
+// Health Check
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: "healthy", timestamp: new Date() });
+});
+app.get('/', (req, res) => {
+    res.json({ message: "Sentry Hub API Online" });
+});
+// --- 5. GLOBAL 404 HANDLER ---
+app.use((req, res) => {
+    const logMsg = `❌ 404: ${req.method} ${req.originalUrl}`;
+    console.warn(logMsg);
+    res.status(404).json({
+        error: "Endpoint not found",
+        method: req.method,
+        path: req.originalUrl
+    });
+});
+// --- 6. GLOBAL ERROR HANDLER ---
+app.use((err, req, res, next) => {
+    console.error("🔥 Server Error:", err.stack);
+    res.status(500).json({ error: "Internal Server Error" });
+});
+// --- 7. GRACEFUL SHUTDOWN (The Telegram 409 Fix) ---
+const shutDown = () => {
+    console.log('🛑 SIGTERM received: Closing HTTP server & Bot...');
+    httpServer.close(() => {
+        console.log('HTTP server closed.');
+        // If you have your bot instance exported from a service:
+        // bot.stopPolling().then(() => process.exit(0)); 
+        process.exit(0);
+    });
+};
+process.on('SIGTERM', shutDown);
+process.on('SIGINT', shutDown);
+httpServer.listen(PORT, () => {
+    console.log(`
+  🚀 SYSTEM READY
+  -------------------------------
+  Port:    ${PORT}
+  Mode:    ${process.env.NODE_ENV || 'development'}
+  Routes:  /api/alerts, /api/cameras, /api/auth, /api/vision
+  -------------------------------
+  `);
+});

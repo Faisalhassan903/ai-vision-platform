@@ -36,9 +36,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importStar(require("mongoose"));
 const AlertSchema = new mongoose_1.Schema({
     ruleId: {
-        type: mongoose_1.Schema.Types.ObjectId,
+        type: mongoose_1.Schema.Types.Mixed, // More flexible for AI triggers
         ref: 'AlertRule',
-        required: true
+        required: false
     },
     ruleName: {
         type: String,
@@ -47,7 +47,8 @@ const AlertSchema = new mongoose_1.Schema({
     priority: {
         type: String,
         enum: ['info', 'warning', 'critical'],
-        required: true
+        required: true,
+        index: true
     },
     message: {
         type: String,
@@ -55,23 +56,30 @@ const AlertSchema = new mongoose_1.Schema({
     },
     cameraId: {
         type: String,
-        required: true
+        required: false // Fixed: Don't crash if ID isn't ready
     },
     cameraName: {
         type: String,
-        required: true
+        default: "Default Node"
     },
     detections: [{
-            class: String,
+            class: { type: String, index: true }, // Index this for faster "Top Detections" queries
             confidence: Number,
             bbox: mongoose_1.Schema.Types.Mixed
         }],
+    // --- ADDED FOR ANALYTICS MISSION ---
+    analytics: {
+        device_id: { type: String, index: true },
+        primary_target: { type: String, index: true },
+        confidence_avg: Number
+    },
     snapshot: {
         type: String
     },
     acknowledged: {
         type: Boolean,
-        default: false
+        default: false,
+        index: true
     },
     acknowledgedBy: {
         type: String
@@ -87,7 +95,10 @@ const AlertSchema = new mongoose_1.Schema({
         default: Date.now,
         index: true
     }
+}, {
+    timestamps: true // Automatically adds createdAt and updatedAt
 });
+// Optimized compound indexes for the dashboard
+AlertSchema.index({ 'analytics.primary_target': 1, timestamp: -1 });
 AlertSchema.index({ priority: 1, timestamp: -1 });
-AlertSchema.index({ acknowledged: 1, timestamp: -1 });
 exports.default = mongoose_1.default.model('Alert', AlertSchema);

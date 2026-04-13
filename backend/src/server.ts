@@ -7,7 +7,7 @@ import path from 'path';
 
 // Route Imports
 import alertRoutes from './routes/alertRoutes';
-import cameraRoutes from '../src/routes/cameraRoutes';
+import cameraRoutes  from './routes/cameraRoutes';
 import authRoutes from './routes/authRoutes';
 import visionRoutes from './routes/visionRoutes';
 
