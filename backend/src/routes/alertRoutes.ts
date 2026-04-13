@@ -1,12 +1,11 @@
 import express, { Request, Response } from 'express';
 import Alert from '../models/Alert';
-import { requireDB } from '../config/db';
+import connectDB from '../config/database';
 
 const router = express.Router();
 
-// Apply DB connection check to ALL alert routes
-router.use(requireDB);
-
+// Ensure MongoDB is connected before any DB operation
+router.use(connectDB)
 /**
  * @route   POST /api/alerts
  */
@@ -34,16 +33,16 @@ router.post('/', async (req: Request, res: Response) => {
       priority,
       message: message || `Security trigger: ${ruleName}`,
       cameraId: cameraId || null,
-      cameraName: cameraName || "Sentry_Node_01",
+      cameraName: cameraName || 'Sentry_Node_01',
       timestamp: new Date(),
       acknowledged: false,
       analytics: {
-        device_id: analytics?.device_id || "UNKNOWN_NODE",
-        primary_target: analytics?.primary_target || detections?.[0]?.class || "unknown",
+        device_id: analytics?.device_id || 'UNKNOWN_NODE',
+        primary_target: analytics?.primary_target || detections?.[0]?.class || 'unknown',
         confidence_avg: analytics?.confidence_avg || 0,
       },
       detections: (detections || []).map((d: any) => ({
-        class: d.class || "unknown",
+        class: d.class || 'unknown',
         confidence: typeof d.confidence === 'number' ? d.confidence : 0,
         bbox: d.bbox || null
       }))
@@ -57,7 +56,7 @@ router.post('/', async (req: Request, res: Response) => {
     res.status(201).json({ success: true, alert: savedAlert });
 
   } catch (error: any) {
-    console.error("🚨 Alert Save Failure:", error.message);
+    console.error('🚨 Alert Save Failure:', error.message);
     if (error.errors) {
       Object.keys(error.errors).forEach(f => {
         console.error(`  Field [${f}]:`, error.errors[f].message);
@@ -65,7 +64,7 @@ router.post('/', async (req: Request, res: Response) => {
     }
     res.status(500).json({ 
       success: false, 
-      error: "Database rejection on incident log.",
+      error: 'Database rejection on incident log.',
       detail: error.message
     });
   }
@@ -79,8 +78,8 @@ router.get('/', async (req: Request, res: Response) => {
     const alerts = await Alert.find().sort({ timestamp: -1 }).limit(100);
     res.json({ success: true, count: alerts.length, alerts });
   } catch (error: any) {
-    console.error("GET /api/alerts failed:", error.message);
-    res.status(500).json({ success: false, error: "Failed to retrieve incident logs." });
+    console.error('GET /api/alerts failed:', error.message);
+    res.status(500).json({ success: false, error: 'Failed to retrieve incident logs.' });
   }
 });
 
@@ -94,7 +93,7 @@ router.patch('/:id/acknowledge', async (req: Request, res: Response) => {
       { acknowledged: true, acknowledgedAt: new Date() }, 
       { new: true }
     );
-    if (!alert) return res.status(404).json({ success: false, error: "Incident not found." });
+    if (!alert) return res.status(404).json({ success: false, error: 'Incident not found.' });
     res.json({ success: true, alert });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
