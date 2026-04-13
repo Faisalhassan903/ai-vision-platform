@@ -5,112 +5,105 @@ import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import { Button } from '../components/ui';
 import { useAlerts } from '../hooks/useAlerts';
 
-const DETECTION_INTERVAL = 4; 
-const ALERT_THRESHOLD = 0.70;
-const COOLDOWN_MS = 10000; 
+const DETECTION_INTERVAL = 3; // Faster polling for high-security
+const ALERT_THRESHOLD = 0.65; // High sensitivity for night security
+const COOLDOWN_MS = 15000; 
 
 const LiveCamera: React.FC = () => {
   const { triggerNewAlert } = useAlerts();
   
-  // Refs for persistent hardware/AI state
+  // Hardware & AI Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
-  const rafRef = useRef<number>();
-  const lastAlertRef = useRef<number>(0);
-  const frameCounter = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
-  const isInitializing = useRef(false); // Prevents double-start "flicker"
+  const rafRef = useRef<number>();
+  
+  // Security Logic Refs
+  const lastAlertRef = useRef<number>(0);
+  const isBooting = useRef(false);
 
+  // UI State
   const [isLive, setIsLive] = useState(false);
   const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'active' | 'error'>('idle');
-  const [debugInfo, setDebugInfo] = useState({ backend: '' });
+  const [securityStatus, setSecurityStatus] = useState('SYSTEM_DISARMED');
 
   /**
-   * STOP: Cleanup hardware properly
+   * EMERGENCY SHUTDOWN: Clears all hardware tracks
    */
   const stopCamera = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
-
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-
+    if (videoRef.current) videoRef.current.srcObject = null;
+    
     setIsLive(false);
     setInitStatus('idle');
-    isInitializing.current = false;
+    setSecurityStatus('SYSTEM_DISARMED');
+    console.log("🎥 Security Node: Hardware Released");
   }, []);
 
   /**
-   * START: The Neural Hub
+   * SYSTEM INITIALIZE: Bank-Grade Boot Sequence
    */
-  const startCamera = async () => {
-    if (isInitializing.current || isLive) return; // Guard
-    isInitializing.current = true;
+  const startSecurityNode = async () => {
+    if (isBooting.current) return;
+    isBooting.current = true;
 
     try {
       setInitStatus('loading');
+      setSecurityStatus('BOOTING_NEURAL_ENGINE');
 
-      // 1. WASM Setup (CDN Fallback)
+      // 1. WASM FORCED PATH (Kills the 404 Error)
       const version = tf.version.tfjs;
-      await tfwasm.setWasmPaths(`https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@${version}/dist/`);
+      tfwasm.setWasmPaths(`https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@${version}/dist/`);
       
-      if (tf.getBackend() !== 'wasm') {
-        try {
-          await tf.setBackend('wasm');
-        } catch {
-          await tf.setBackend('webgl');
-        }
+      // 2. BACKEND HANDSHAKE
+      try {
+        await tf.setBackend('wasm');
+      } catch (e) {
+        console.warn("WASM Engine blocked. Falling back to WebGL.");
+        await tf.setBackend('webgl');
       }
       await tf.ready();
-      setDebugInfo({ backend: tf.getBackend() });
 
-      // 2. Load Model & Stream
-      const [loadedModel, stream] = await Promise.all([
-        cocoSsd.load({ base: 'lite_mobilenet_v2' }),
-        navigator.mediaDevices.getUserMedia({ 
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false 
-        })
-      ]);
-
-      modelRef.current = loadedModel;
+      // 3. HARDWARE LOCK-ON
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { width: 1280, height: 720, facingMode: 'user' } 
+      });
       streamRef.current = stream;
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Wait for video to be ready before setting status to 'active'
-        await videoRef.current.play();
-        setIsLive(true);
-        setInitStatus('active');
+        await videoRef.current.play(); // Ensure stream is flowing BEFORE model load
       }
-    } catch (error) {
-      console.error("System Boot Failure:", error);
+
+      // 4. LOAD AI MODEL
+      modelRef.current = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+
+      setSecurityStatus('ACTIVE_MONITORING');
+      setInitStatus('active');
+      setIsLive(true);
+    } catch (err) {
+      console.error("🚨 SECURITY BREACH: System failed to boot", err);
       setInitStatus('error');
-      isInitializing.current = false;
+      stopCamera();
+    } finally {
+      isBooting.current = false;
     }
   };
 
   /**
-   * DETECTION: Analytics & Alerting
+   * SURVEILLANCE LOOP: Analytics & Real-time Triggering
    */
-  const runDetection = useCallback(async () => {
+  const monitorStream = useCallback(async () => {
     if (!isLive || !videoRef.current || !modelRef.current) return;
-
-    frameCounter.current++;
-    if (frameCounter.current % DETECTION_INTERVAL !== 0) {
-      rafRef.current = requestAnimationFrame(runDetection);
-      return;
-    }
 
     tf.engine().startScope();
     try {
-      const predictions = await modelRef.current.detect(videoRef.current, 5, 0.5);
+      const predictions = await modelRef.current.detect(videoRef.current, 6, 0.4);
       const ctx = canvasRef.current?.getContext('2d');
 
       if (ctx && canvasRef.current && videoRef.current) {
@@ -118,84 +111,89 @@ const LiveCamera: React.FC = () => {
         canvasRef.current.height = videoRef.current.videoHeight;
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
+        // Security Visualization
         predictions.forEach(p => {
+          const isTarget = p.class === 'person';
           const [x, y, w, h] = p.bbox;
-          const isPerson = p.class === 'person';
-          
-          ctx.strokeStyle = isPerson ? '#ff0000' : '#00ff00';
-          ctx.lineWidth = 2;
+
+          ctx.strokeStyle = isTarget ? '#FF0000' : '#00FF41'; // Red for targets, Matrix green for others
+          ctx.lineWidth = isTarget ? 4 : 2;
           ctx.strokeRect(x, y, w, h);
-          
-          ctx.fillStyle = isPerson ? '#ff0000' : '#00ff00';
-          ctx.font = 'bold 14px Arial';
-          ctx.fillText(`${p.class.toUpperCase()} ${Math.round(p.score * 100)}%`, x, y > 15 ? y - 5 : 15);
+
+          ctx.fillStyle = isTarget ? '#FF0000' : '#00FF41';
+          ctx.font = 'bold 16px Courier New';
+          ctx.fillText(`[${p.class.toUpperCase()}: ${Math.round(p.score * 100)}%]`, x, y - 10);
         });
 
-        const person = predictions.find(p => p.class === 'person' && p.score > ALERT_THRESHOLD);
-        if (person && (Date.now() - lastAlertRef.current > COOLDOWN_MS)) {
+        // Smart Trigger Logic
+        const target = predictions.find(p => p.class === 'person' && p.score > ALERT_THRESHOLD);
+        if (target && (Date.now() - lastAlertRef.current > COOLDOWN_MS)) {
           lastAlertRef.current = Date.now();
-          
-          // Complete Payload for Analytics Mission
+          setSecurityStatus('INTRUDER_DETECTED');
+
+          // Bank-Grade Payload
           triggerNewAlert({
-            ruleName: "HUMAN_DETECTION",
+            ruleName: "UNAUTHORIZED_ENTRY",
             priority: 'critical',
-            message: `Unidentified person detected at entrance.`,
-            cameraName: "Main Node 01",
+            message: "Human presence detected in secure zone.",
+            cameraName: "Vault_Entrance_01",
             analytics: {
-              device_id: "VISION-01",
-              primary_target: "person",
-              confidence_avg: person.score
+              device_id: "SENTRY_NODE_ALPHA",
+              primary_target: "human",
+              confidence_avg: target.score
             },
             detections: predictions.map(d => ({ class: d.class, confidence: d.score }))
-          });
+          }).catch(e => console.error("Comms Link Failed", e));
         }
       }
     } finally {
       tf.engine().endScope();
-      if (isLive) rafRef.current = requestAnimationFrame(runDetection);
+      if (isLive) rafRef.current = requestAnimationFrame(monitorStream);
     }
   }, [isLive, triggerNewAlert]);
 
   useEffect(() => {
-    if (isLive) {
-      rafRef.current = requestAnimationFrame(runDetection);
-    }
-    return () => {
-      // ONLY stop if the component is actually unmounting
-      if (!isLive && !isInitializing.current) stopCamera();
-    };
-  }, [isLive, runDetection, stopCamera]);
+    if (isLive) rafRef.current = requestAnimationFrame(monitorStream);
+    return () => stopCamera();
+  }, [isLive, monitorStream, stopCamera]);
 
   return (
-    <div className="max-w-5xl mx-auto p-4 space-y-4">
-      <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+    <div className="min-h-screen bg-slate-950 p-6 text-white font-mono">
+      {/* HUD Header */}
+      <div className="max-w-6xl mx-auto flex justify-between items-center border-b border-slate-800 pb-4 mb-6">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Live AI Vision</h1>
-          <p className="text-xs font-mono text-slate-500 uppercase">Engine: {debugInfo.backend || 'IDLE'}</p>
+          <h1 className="text-2xl font-bold tracking-tighter text-red-500">SENTRY HUB <span className="text-white">v4.0</span></h1>
+          <p className={`text-xs ${isLive ? 'text-green-400' : 'text-slate-500'}`}>
+            STATUS: {securityStatus}
+          </p>
         </div>
-        <div className="flex gap-3">
-          {!isLive ? (
-            <Button onClick={startCamera} disabled={initStatus === 'loading'}>
-              {initStatus === 'loading' ? 'Loading AI...' : 'Initialize Node'}
-            </Button>
-          ) : (
-            <Button onClick={stopCamera} variant="destructive">Shutdown Node</Button>
-          )}
-        </div>
+        <Button 
+          onClick={isLive ? stopCamera : startSecurityNode} 
+          variant={isLive ? 'destructive' : 'default'}
+          className={!isLive ? 'bg-green-600 hover:bg-green-500 text-black font-bold' : ''}
+        >
+          {isLive ? 'TERMINATE_SURVEILLANCE' : 'INITIALIZE_SENTRY'}
+        </Button>
       </div>
 
-      <div className="relative aspect-video bg-slate-900 rounded-xl overflow-hidden shadow-2xl">
-        <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" muted playsInline />
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-        
-        {initStatus === 'loading' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80">
-            <div className="text-center">
-              <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-white font-medium">Downloading Neural Weights...</p>
+      {/* Main Viewport */}
+      <div className="max-w-6xl mx-auto relative group">
+        <div className="absolute top-4 left-4 z-10 bg-black/50 p-2 text-[10px] border border-green-500/30">
+          REC ● LIVE_FEED_01
+        </div>
+        <div className="relative aspect-video rounded-sm border border-slate-800 bg-black overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+          <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-80" muted playsInline />
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-20" />
+          
+          {initStatus === 'loading' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950">
+              <div className="w-16 h-1 bg-slate-800 overflow-hidden mb-2">
+                <div className="w-full h-full bg-green-500 animate-progress origin-left" />
+              </div>
+              <p className="text-[10px] uppercase tracking-widest text-green-500">Loading Neural Assets...</p>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
