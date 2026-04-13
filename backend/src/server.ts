@@ -4,11 +4,10 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import path from 'path';
+import mongoose from 'mongoose';
 
 // Route Imports
 import alertRoutes from './routes/alertRoutes';
-///import cameraRoutes  from './routes/cameraRoutes';
-//import cameraRoutes from "./routes/cameraRoutes";
 const cameraRoutes = require('./routes/cameraRoutes').default;
 import authRoutes from './routes/authRoutes';
 import visionRoutes from './routes/visionRoutes';
@@ -19,16 +18,16 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 10000;
 
-// --- 1. SOCKET.IO OPTIMIZATION ---
+// --- 1. SOCKET.IO ---
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || "*", // Secure this in production
+    origin: process.env.FRONTEND_URL || "*",
     methods: ["GET", "POST"],
     credentials: true
   },
-  pingTimeout: 60000, // Handle slow mobile/render connections
+  pingTimeout: 60000,
   pingInterval: 25000,
-  transports: ['websocket', 'polling'] // Allow fallback but prefer WS
+  transports: ['websocket', 'polling']
 });
 
 app.set('socketio', io);
@@ -38,74 +37,102 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || "*",
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' })); // Support image uploads
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-
-// Serve static uploads if you're storing images locally
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // --- 3. SOCKET EVENTS ---
 io.on('connection', (socket) => {
   console.log(`📡 New Client: ${socket.id}`);
-  
   socket.on('disconnect', (reason) => {
     console.log(`🔌 Client Left: ${socket.id} (${reason})`);
   });
 });
 
-// --- 4. ROUTE REGISTRATION ---
+// --- 4. ROUTES ---
 app.use('/api/alerts', alertRoutes);
 app.use('/api/cameras', cameraRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/vision', visionRoutes);
 
-// Health Check
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: "healthy", timestamp: new Date() });
+  res.status(200).json({ 
+    status: "healthy", 
+    db: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    timestamp: new Date() 
+  });
 });
 
 app.get('/', (req, res) => {
   res.json({ message: "Sentry Hub API Online" });
 });
 
-// --- 5. GLOBAL 404 HANDLER ---
+// --- 5. 404 HANDLER ---
 app.use((req: Request, res: Response) => {
-  const logMsg = `❌ 404: ${req.method} ${req.originalUrl}`;
-  console.warn(logMsg);
-  res.status(404).json({ 
-    error: "Endpoint not found", 
-    method: req.method,
-    path: req.originalUrl 
-  });
+  console.warn(`❌ 404: ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ error: "Endpoint not found", path: req.originalUrl });
 });
 
-// --- 6. GLOBAL ERROR HANDLER ---
+// --- 6. ERROR HANDLER ---
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error("🔥 Server Error:", err.stack);
   res.status(500).json({ error: "Internal Server Error" });
 });
 
-// --- 7. GRACEFUL SHUTDOWN (The Telegram 409 Fix) ---
+// --- 7. GRACEFUL SHUTDOWN ---
 const shutDown = () => {
-  console.log('🛑 SIGTERM received: Closing HTTP server & Bot...');
+  console.log('🛑 Shutting down...');
   httpServer.close(() => {
-    console.log('HTTP server closed.');
-    // If you have your bot instance exported from a service:
-    // bot.stopPolling().then(() => process.exit(0)); 
-    process.exit(0);
+    mongoose.connection.close().then(() => {
+      console.log('MongoDB connection closed.');
+      process.exit(0);
+    });
   });
 };
 
 process.on('SIGTERM', shutDown);
 process.on('SIGINT', shutDown);
 
-httpServer.listen(PORT, () => {
-  console.log(`
+// --- 8. CONNECT DB THEN START SERVER ---
+// THIS WAS THE BUG: server was starting without waiting for MongoDB
+const startServer = async () => {
+  try {
+    const dbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ai_vision_security';
+
+    console.log('⏳ Connecting to MongoDB...');
+    await mongoose.connect(dbUri, {
+      serverSelectionTimeoutMS: 15000,  // Give Atlas 15s to respond on cold start
+      socketTimeoutMS: 45000,
+      connectTimeoutMS: 15000,
+      maxPoolSize: 5,
+    });
+    console.log(`✅ MongoDB Connected: ${mongoose.connection.host}`);
+
+    // Only start listening AFTER DB is confirmed connected
+    httpServer.listen(PORT, () => {
+      console.log(`
   🚀 SYSTEM READY
   -------------------------------
   Port:    ${PORT}
   Mode:    ${process.env.NODE_ENV || 'development'}
   Routes:  /api/alerts, /api/cameras, /api/auth, /api/vision
   -------------------------------
-  `);
+      `);
+    });
+
+  } catch (error: any) {
+    console.error('❌ Failed to connect to MongoDB:', error.message);
+    process.exit(1); // Crash on startup failure — Render will restart automatically
+  }
+};
+
+// Handle MongoDB disconnections after startup
+mongoose.connection.on('disconnected', () => {
+  console.warn('⚠️ MongoDB disconnected. Attempting reconnect...');
 });
+
+mongoose.connection.on('reconnected', () => {
+  console.log('✅ MongoDB reconnected.');
+});
+
+startServer();
