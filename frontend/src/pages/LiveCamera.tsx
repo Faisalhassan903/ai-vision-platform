@@ -1,198 +1,301 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as tf from '@tensorflow/tfjs';
-import * as tfwasm from '@tensorflow/tfjs-backend-wasm';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import { Button } from '../components/ui';
 import { useAlerts } from '../hooks/useAlerts';
 
-const DETECTION_INTERVAL = 3; // Faster polling for high-security
-const ALERT_THRESHOLD = 0.65; // High sensitivity for night security
-const COOLDOWN_MS = 15000; 
+const ALERT_THRESHOLD = 0.60;
+const COOLDOWN_MS = 15000;
+const DETECTION_EVERY_N_FRAMES = 5;
 
 const LiveCamera: React.FC = () => {
   const { triggerNewAlert } = useAlerts();
-  
-  // Hardware & AI Refs
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modelRef = useRef<cocoSsd.ObjectDetection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number>();
-  
-  // Security Logic Refs
+  const rafRef = useRef<number | null>(null);
   const lastAlertRef = useRef<number>(0);
-  const isBooting = useRef(false);
+  const frameCountRef = useRef<number>(0);
+  const isRunningRef = useRef<boolean>(false);
 
-  // UI State
   const [isLive, setIsLive] = useState(false);
   const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'active' | 'error'>('idle');
-  const [securityStatus, setSecurityStatus] = useState('SYSTEM_DISARMED');
+  const [securityStatus, setSecurityStatus] = useState('DISARMED');
+  const [detectionCount, setDetectionCount] = useState(0);
 
-  /**
-   * EMERGENCY SHUTDOWN: Clears all hardware tracks
-   */
+  // ─── STOP CAMERA ─────────────────────────────────────────────────────────────
   const stopCamera = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    isRunningRef.current = false;
+
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
-    if (videoRef.current) videoRef.current.srcObject = null;
-    
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
+
     setIsLive(false);
     setInitStatus('idle');
-    setSecurityStatus('SYSTEM_DISARMED');
-    console.log("🎥 Security Node: Hardware Released");
+    setSecurityStatus('DISARMED');
+    setDetectionCount(0);
+    console.log('🔴 Camera stopped');
   }, []);
 
-  /**
-   * SYSTEM INITIALIZE: Bank-Grade Boot Sequence
-   */
-  const startSecurityNode = async () => {
-    if (isBooting.current) return;
-    isBooting.current = true;
+  // ─── DETECTION LOOP ───────────────────────────────────────────────────────────
+  // CRITICAL FIX: Never wrap async detection inside tf.tidy() or tf.engine().startScope()
+  // model.detect() manages its own tensor memory internally
+  const detectionLoop = useCallback(async () => {
+    if (!isRunningRef.current) return;
+
+    frameCountRef.current += 1;
+
+    if (frameCountRef.current % DETECTION_EVERY_N_FRAMES === 0) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const model = modelRef.current;
+
+      if (video && canvas && model && video.readyState === 4 && video.videoWidth > 0) {
+        try {
+          const predictions = await model.detect(video, 6, 0.35);
+
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            predictions.forEach(p => {
+              const [x, y, w, h] = p.bbox;
+              const isPerson = p.class === 'person';
+              const color = isPerson ? '#FF3333' : '#00FF88';
+              const confidence = Math.round(p.score * 100);
+
+              ctx.strokeStyle = color;
+              ctx.lineWidth = isPerson ? 3 : 2;
+              ctx.strokeRect(x, y, w, h);
+
+              // Corner accents
+              const cl = 14;
+              ctx.lineWidth = isPerson ? 4 : 2;
+              ctx.beginPath();
+              ctx.moveTo(x + cl, y); ctx.lineTo(x, y); ctx.lineTo(x, y + cl);
+              ctx.moveTo(x + w - cl, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cl);
+              ctx.moveTo(x, y + h - cl); ctx.lineTo(x, y + h); ctx.lineTo(x + cl, y + h);
+              ctx.moveTo(x + w - cl, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cl);
+              ctx.stroke();
+
+              // Label
+              const label = `${p.class.toUpperCase()} ${confidence}%`;
+              ctx.font = 'bold 12px "Courier New", monospace';
+              const tw = ctx.measureText(label).width;
+              ctx.fillStyle = isPerson ? 'rgba(255,51,51,0.9)' : 'rgba(0,255,136,0.9)';
+              ctx.fillRect(x, y - 22, tw + 10, 20);
+              ctx.fillStyle = '#000';
+              ctx.fillText(label, x + 5, y - 6);
+            });
+
+            setDetectionCount(predictions.length);
+
+            // ── ALERT TRIGGER ─────────────────────────────────────────────────
+            const personTarget = predictions.find(
+              p => p.class === 'person' && p.score > ALERT_THRESHOLD
+            );
+
+            if (personTarget && Date.now() - lastAlertRef.current > COOLDOWN_MS) {
+              lastAlertRef.current = Date.now();
+              setSecurityStatus('⚠ INTRUDER DETECTED');
+
+              triggerNewAlert({
+                ruleName: 'UNAUTHORIZED_ENTRY',
+                priority: 'critical',
+                message: `Human presence detected. Confidence: ${Math.round(personTarget.score * 100)}%`,
+                cameraName: 'Sentry_Node_01',
+                analytics: {
+                  device_id: 'SENTRY_ALPHA',
+                  primary_target: 'human',
+                  confidence_avg: personTarget.score,
+                },
+                detections: predictions.map(d => ({
+                  class: d.class,
+                  confidence: d.score,
+                })),
+              }).catch(e => console.error('Alert send failed:', e));
+
+              setTimeout(() => {
+                if (isRunningRef.current) setSecurityStatus('ACTIVE — MONITORING');
+              }, 5000);
+            }
+          }
+        } catch (err) {
+          console.warn('Detection frame skipped:', err);
+        }
+      }
+    }
+
+    if (isRunningRef.current) {
+      rafRef.current = requestAnimationFrame(() => { detectionLoop(); });
+    }
+  }, [triggerNewAlert]);
+
+  // ─── START CAMERA ─────────────────────────────────────────────────────────────
+  const startCamera = async () => {
+    if (isRunningRef.current) return;
 
     try {
       setInitStatus('loading');
-      setSecurityStatus('BOOTING_NEURAL_ENGINE');
+      setSecurityStatus('BOOTING...');
 
-      // 1. WASM FORCED PATH (Kills the 404 Error)
-      const version = tf.version.tfjs;
-      tfwasm.setWasmPaths(`https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@${version}/dist/`);
-      
-      // 2. BACKEND HANDSHAKE
+      // Backend: WebGL preferred, fallback to CPU
       try {
-        await tf.setBackend('wasm');
-      } catch (e) {
-        console.warn("WASM Engine blocked. Falling back to WebGL.");
         await tf.setBackend('webgl');
+      } catch {
+        await tf.setBackend('cpu');
       }
       await tf.ready();
+      console.log('✅ TF backend:', tf.getBackend());
 
-      // 3. HARDWARE LOCK-ON
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { width: 1280, height: 720, facingMode: 'user' } 
+      // Camera stream
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: false,
       });
       streamRef.current = stream;
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play(); // Ensure stream is flowing BEFORE model load
+      if (!videoRef.current) throw new Error('Video element not ready');
+      videoRef.current.srcObject = stream;
+
+      await new Promise<void>((resolve, reject) => {
+        const v = videoRef.current!;
+        v.onloadedmetadata = () => { v.play().then(resolve).catch(reject); };
+        v.onerror = reject;
+      });
+
+      // Load model (reuse if already loaded)
+      setSecurityStatus('LOADING MODEL...');
+      if (!modelRef.current) {
+        modelRef.current = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
       }
+      console.log('✅ Model loaded');
 
-      // 4. LOAD AI MODEL
-      modelRef.current = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-
-      setSecurityStatus('ACTIVE_MONITORING');
-      setInitStatus('active');
+      isRunningRef.current = true;
+      frameCountRef.current = 0;
       setIsLive(true);
-    } catch (err) {
-      console.error("🚨 SECURITY BREACH: System failed to boot", err);
+      setInitStatus('active');
+      setSecurityStatus('ACTIVE — MONITORING');
+
+      rafRef.current = requestAnimationFrame(() => { detectionLoop(); });
+
+    } catch (err: any) {
+      console.error('Camera start failed:', err);
       setInitStatus('error');
+      setSecurityStatus(`ERROR: ${err.message || 'Start failed'}`);
       stopCamera();
-    } finally {
-      isBooting.current = false;
     }
   };
 
-  /**
-   * SURVEILLANCE LOOP: Analytics & Real-time Triggering
-   */
-  const monitorStream = useCallback(async () => {
-    if (!isLive || !videoRef.current || !modelRef.current) return;
-
-    tf.engine().startScope();
-    try {
-      const predictions = await modelRef.current.detect(videoRef.current, 6, 0.4);
-      const ctx = canvasRef.current?.getContext('2d');
-
-      if (ctx && canvasRef.current && videoRef.current) {
-        canvasRef.current.width = videoRef.current.videoWidth;
-        canvasRef.current.height = videoRef.current.videoHeight;
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-
-        // Security Visualization
-        predictions.forEach(p => {
-          const isTarget = p.class === 'person';
-          const [x, y, w, h] = p.bbox;
-
-          ctx.strokeStyle = isTarget ? '#FF0000' : '#00FF41'; // Red for targets, Matrix green for others
-          ctx.lineWidth = isTarget ? 4 : 2;
-          ctx.strokeRect(x, y, w, h);
-
-          ctx.fillStyle = isTarget ? '#FF0000' : '#00FF41';
-          ctx.font = 'bold 16px Courier New';
-          ctx.fillText(`[${p.class.toUpperCase()}: ${Math.round(p.score * 100)}%]`, x, y - 10);
-        });
-
-        // Smart Trigger Logic
-        const target = predictions.find(p => p.class === 'person' && p.score > ALERT_THRESHOLD);
-        if (target && (Date.now() - lastAlertRef.current > COOLDOWN_MS)) {
-          lastAlertRef.current = Date.now();
-          setSecurityStatus('INTRUDER_DETECTED');
-
-          // Bank-Grade Payload
-          triggerNewAlert({
-            ruleName: "UNAUTHORIZED_ENTRY",
-            priority: 'critical',
-            message: "Human presence detected in secure zone.",
-            cameraName: "Vault_Entrance_01",
-            analytics: {
-              device_id: "SENTRY_NODE_ALPHA",
-              primary_target: "human",
-              confidence_avg: target.score
-            },
-            detections: predictions.map(d => ({ class: d.class, confidence: d.score }))
-          }).catch(e => console.error("Comms Link Failed", e));
-        }
-      }
-    } finally {
-      tf.engine().endScope();
-      if (isLive) rafRef.current = requestAnimationFrame(monitorStream);
-    }
-  }, [isLive, triggerNewAlert]);
-
   useEffect(() => {
-    if (isLive) rafRef.current = requestAnimationFrame(monitorStream);
-    return () => stopCamera();
-  }, [isLive, monitorStream, stopCamera]);
+    return () => { stopCamera(); };
+  }, [stopCamera]);
 
   return (
     <div className="min-h-screen bg-slate-950 p-6 text-white font-mono">
-      {/* HUD Header */}
-      <div className="max-w-6xl mx-auto flex justify-between items-center border-b border-slate-800 pb-4 mb-6">
+      {/* Header */}
+      <div className="max-w-5xl mx-auto flex justify-between items-center border-b border-slate-800 pb-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tighter text-red-500">SENTRY HUB <span className="text-white">v4.0</span></h1>
-          <p className={`text-xs ${isLive ? 'text-green-400' : 'text-slate-500'}`}>
-            STATUS: {securityStatus}
+          <h1 className="text-2xl font-bold tracking-tighter">
+            <span className="text-red-500">SENTRY</span>
+            <span className="text-white"> HUB v4.0</span>
+          </h1>
+          <p className={`text-xs mt-1 ${
+            securityStatus.includes('INTRUDER') ? 'text-red-400 animate-pulse' :
+            initStatus === 'active' ? 'text-green-400' :
+            initStatus === 'error' ? 'text-red-500' :
+            'text-slate-500'
+          }`}>
+            ◆ {securityStatus}
           </p>
         </div>
-        <Button 
-          onClick={isLive ? stopCamera : startSecurityNode} 
-          variant={isLive ? 'destructive' : 'default'}
-          className={!isLive ? 'bg-green-600 hover:bg-green-500 text-black font-bold' : ''}
-        >
-          {isLive ? 'TERMINATE_SURVEILLANCE' : 'INITIALIZE_SENTRY'}
-        </Button>
+
+        <div className="flex items-center gap-4">
+          {initStatus === 'active' && (
+            <span className="text-xs text-slate-400">
+              {detectionCount} object{detectionCount !== 1 ? 's' : ''} in frame
+            </span>
+          )}
+          <Button
+            onClick={isLive ? stopCamera : startCamera}
+            disabled={initStatus === 'loading'}
+            className={`font-bold px-6 py-2 text-sm tracking-widest ${
+              isLive
+                ? 'bg-red-700 hover:bg-red-600 text-white'
+                : initStatus === 'loading'
+                ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                : 'bg-green-600 hover:bg-green-500 text-black'
+            }`}
+          >
+            {initStatus === 'loading' ? 'INITIALIZING...' : isLive ? '⏹ STOP' : '▶ START'}
+          </Button>
+        </div>
       </div>
 
-      {/* Main Viewport */}
-      <div className="max-w-6xl mx-auto relative group">
-        <div className="absolute top-4 left-4 z-10 bg-black/50 p-2 text-[10px] border border-green-500/30">
-          REC ● LIVE_FEED_01
-        </div>
-        <div className="relative aspect-video rounded-sm border border-slate-800 bg-black overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
-          <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-80" muted playsInline />
-          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-20" />
-          
-          {initStatus === 'loading' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950">
-              <div className="w-16 h-1 bg-slate-800 overflow-hidden mb-2">
-                <div className="w-full h-full bg-green-500 animate-progress origin-left" />
-              </div>
-              <p className="text-[10px] uppercase tracking-widest text-green-500">Loading Neural Assets...</p>
+      {/* Viewport */}
+      <div className="max-w-5xl mx-auto">
+        <div className="relative aspect-video rounded border border-slate-700 bg-black overflow-hidden">
+          {isLive && (
+            <div className="absolute top-3 left-3 z-30 flex items-center gap-2 bg-black/60 px-2 py-1 rounded text-xs">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block" />
+              LIVE
             </div>
           )}
+
+          <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" muted playsInline />
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-10 pointer-events-none" />
+
+          {initStatus === 'idle' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 z-20">
+              <div className="text-slate-600 text-5xl mb-4">◎</div>
+              <p className="text-slate-500 text-sm tracking-widest">PRESS START TO INITIALIZE</p>
+            </div>
+          )}
+
+          {initStatus === 'loading' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 z-20">
+              <div className="w-48 h-1 bg-slate-800 rounded overflow-hidden mb-3">
+                <div className="h-full bg-green-500 animate-pulse" style={{ width: '100%' }} />
+              </div>
+              <p className="text-green-500 text-xs tracking-widest animate-pulse">{securityStatus}</p>
+            </div>
+          )}
+
+          {initStatus === 'error' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 z-20">
+              <div className="text-red-500 text-4xl mb-3">⚠</div>
+              <p className="text-red-400 text-sm text-center px-4">{securityStatus}</p>
+              <button onClick={() => setInitStatus('idle')} className="mt-4 text-xs text-slate-400 underline hover:text-white">
+                Dismiss
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-between text-[10px] text-slate-600 mt-2 px-1">
+          <span>BACKEND: {tf.getBackend()?.toUpperCase() || 'N/A'}</span>
+          <span>MODEL: COCO-SSD lite_mobilenet_v2</span>
+          <span>ALERT THRESHOLD: {ALERT_THRESHOLD * 100}%</span>
         </div>
       </div>
     </div>
