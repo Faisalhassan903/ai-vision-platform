@@ -9,7 +9,7 @@ import fs from 'fs';
 
 // Routes
 import alertRoutes from './routes/alertRoutes';
-const cameraRoutes = require('./routes/cameraRoutes').default;
+import cameraRoutes from './routes/cameraRoutes';
 import authRoutes from './routes/authRoutes';
 import visionRoutes from './routes/visionRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
@@ -22,18 +22,19 @@ const httpServer = createServer(app);
 const PORT = process.env.PORT || 10000;
 
 const MONGO_URI = process.env.MONGODB_URI;
-const AI_URL = process.env.AI_SERVICE_URL;
 
 if (!MONGO_URI) {
   console.error("❌ MONGODB_URI missing");
   process.exit(1);
 }
 
-// ✅ Dynamic CORS (supports Vercel preview URLs)
+// ==============================
+// CORS CONFIG
+// ==============================
 const allowedOrigins = ["http://localhost:5173"];
 
 const corsOptions = {
-  origin: function (origin: any, callback: any) {
+  origin: (origin: any, callback: any) => {
     if (
       !origin ||
       allowedOrigins.includes(origin) ||
@@ -45,71 +46,82 @@ const corsOptions = {
       callback(new Error("Not allowed by CORS"));
     }
   },
-  credentials: true
+  credentials: true,
 };
 
-// --- SOCKET ---
+// ==============================
+// SOCKET.IO
+// ==============================
 const io = new Server(httpServer, {
-  cors: {
-    origin: (origin, callback) => {
-      if (!origin || origin.includes(".vercel.app")) {
-        callback(null, true);
-      } else {
-        callback(null, true);
-      }
-    }
-  }
+  cors: corsOptions,
 });
 
 app.set('socketio', io);
 
-// --- MIDDLEWARE ---
+// ==============================
+// MIDDLEWARE
+// ==============================
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// uploads fix
+// ==============================
+// STATIC UPLOADS
+// ==============================
 const uploadPath = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath);
+if (!fs.existsSync(uploadPath)) {
+  fs.mkdirSync(uploadPath, { recursive: true });
+}
 app.use('/uploads', express.static(uploadPath));
 
-// --- ROUTES ---
+// ==============================
+// ROUTES
+// ==============================
 app.use('/api/alerts', alertRoutes);
 app.use('/api/cameras', cameraRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/vision', visionRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('api/rules',ruleRoutes);
+app.use('/api/rules', ruleRoutes); // ✅ FIXED (was missing /)
 
-// --- HEALTH ---
-app.get('/health', (req, res) => {
+// ==============================
+// HEALTH CHECK
+// ==============================
+app.get('/health', (req: Request, res: Response) => {
   res.json({
     status: "ok",
-    db: mongoose.connection.readyState === 1
+    db: mongoose.connection.readyState === 1,
   });
 });
 
-// --- ERRORS ---
+// ==============================
+// 404 HANDLER
+// ==============================
 app.use((req: Request, res: Response) => {
   res.status(404).json({ error: "Not found" });
 });
 
+// ==============================
+// ERROR HANDLER
+// ==============================
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error(err.message);
+  console.error("❌ Server Error:", err.message);
   res.status(500).json({ error: err.message });
 });
 
-// --- START ---
+// ==============================
+// START SERVER
+// ==============================
 const start = async () => {
   try {
-    await mongoose.connect(MONGO_URI!);
+    await mongoose.connect(MONGO_URI);
     console.log("✅ DB connected");
 
     httpServer.listen(PORT, () => {
-      console.log(`🚀 Server running on ${PORT}`);
+      console.log(`🚀 Server running on port ${PORT}`);
     });
   } catch (err: any) {
-    console.error(err.message);
+    console.error("❌ Startup error:", err.message);
     process.exit(1);
   }
 };
