@@ -27,7 +27,7 @@ export function useAlerts() {
   const fetchAlerts = useCallback(async () => {
     try {
       // Use API_BASE_URL consistently
-      const response = await axios.get(`${API_BASE_URL}/api/alerts?limit=50`);
+      const response = await axios.get(`${API_BASE_URL}/api/rules?limit=50`);
       const alertsData = response.data.alerts || [];
       setAlerts(alertsData);
       setUnreadCount(alertsData.filter((a: Alert) => !a.acknowledged).length);
