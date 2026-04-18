@@ -37,7 +37,7 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-outer.patch('/:id/trigger', async (req, res) => {
+router.patch('/:id/trigger', async (req, res) => {
   try {
     const { id } = req.params;
     const rule = await AlertRule.findByIdAndUpdate(
