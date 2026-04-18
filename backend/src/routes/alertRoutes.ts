@@ -1,5 +1,5 @@
 import express from 'express';
-import AlertRule from '../models/AlertRule';
+import Alert from '../models/Alert'; // ← CORRECT
 
 const router = express.Router();
 
