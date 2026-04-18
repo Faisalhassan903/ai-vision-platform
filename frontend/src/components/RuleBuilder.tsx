@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-// 1. IMPORT MAIN_BACKEND_URL INSTEAD OF API_BASE_URL
-import { MAIN_BACKEND_URL } from '../config'; 
+import { MAIN_BACKEND_URL } from '../config';
 
 interface RuleBuilderProps {
   rule?: any;
@@ -24,20 +23,20 @@ const OBJECT_CLASSES = [
 ];
 
 function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<'info' | 'warning' | 'critical'>('warning');
-  const [objectClasses, setObjectClasses] = useState<string[]>([]);
-  const [minConfidence, setMinConfidence] = useState(0.5);
-  const [timeRangeEnabled, setTimeRangeEnabled] = useState(false);
-  const [timeStart, setTimeStart] = useState('22:00');
-  const [timeEnd, setTimeEnd] = useState('06:00');
-  const [notificationEnabled, setNotificationEnabled] = useState(true);
-  const [audioEnabled, setAudioEnabled] = useState(false);
-  const [discordEnabled, setDiscordEnabled] = useState(false);
-  const [saveSnapshot, setSaveSnapshot] = useState(true);
-  const [cooldownMinutes, setCooldownMinutes] = useState(5);
-  const [isSaving, setIsSaving] = useState(false);
+  const [name,               setName]               = useState('');
+  const [description,        setDescription]        = useState('');
+  const [priority,           setPriority]           = useState<'info' | 'warning' | 'critical'>('warning');
+  const [objectClasses,      setObjectClasses]      = useState<string[]>([]);
+  const [minConfidence,      setMinConfidence]      = useState(0.5);
+  const [timeRangeEnabled,   setTimeRangeEnabled]   = useState(false);
+  const [timeStart,          setTimeStart]          = useState('22:00');
+  const [timeEnd,            setTimeEnd]            = useState('06:00');
+  const [notificationEnabled,setNotificationEnabled]= useState(true);
+  const [audioEnabled,       setAudioEnabled]       = useState(false);
+  const [discordEnabled,     setDiscordEnabled]     = useState(false);
+  const [saveSnapshot,       setSaveSnapshot]       = useState(true);
+  const [cooldownMinutes,    setCooldownMinutes]    = useState(5);
+  const [isSaving,           setIsSaving]           = useState(false);
 
   useEffect(() => {
     if (rule) {
@@ -62,7 +61,6 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
       alert('❌ Please enter a rule name');
       return;
     }
-
     if (objectClasses.length === 0) {
       alert('❌ Please select at least one object to detect');
       return;
@@ -74,31 +72,32 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
       const payload = {
         name: name.trim(),
         description: description.trim() || `Alert when ${objectClasses.join(', ')} detected`,
-        priority: priority,
+        priority,
         enabled: true,
         conditions: {
-          objectClasses: objectClasses,
-          minConfidence: minConfidence,
+          objectClasses,
+          minConfidence,
           ...(timeRangeEnabled && {
             timeRange: { start: timeStart, end: timeEnd }
           })
         },
         actions: {
           notification: notificationEnabled,
-          audioAlert: audioEnabled,
-          discord: discordEnabled,
-          saveSnapshot: saveSnapshot,
-          email: false
+          audioAlert:   audioEnabled,
+          discord:      discordEnabled,
+          saveSnapshot,
+          email:        false
         },
-        cooldownMinutes: cooldownMinutes
+        cooldownMinutes
       };
 
-      // 2. UPDATED TO USE MAIN_BACKEND_URL
-      if (rule) {
-        await axios.put(`${MAIN_BACKEND_URL}/api/alerts/rules/${rule._id}`, payload);
+      if (rule?._id) {
+        // ✅ FIXED: was PUT /api/alerts/rules/:id → now PATCH /api/rules/:id
+        await axios.patch(`${MAIN_BACKEND_URL}/api/rules/${rule._id}`, payload);
         alert('✅ Rule updated successfully!');
       } else {
-        await axios.post(`${MAIN_BACKEND_URL}/api/alerts/rules`, payload);
+        // ✅ FIXED: was POST /api/alerts/rules → now POST /api/rules
+        await axios.post(`${MAIN_BACKEND_URL}/api/rules`, payload);
         alert('✅ Rule created successfully!');
       }
 
@@ -106,15 +105,15 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
 
     } catch (error: any) {
       console.error('❌ Failed to save rule:', error);
-      const errorMsg = error.response?.data?.error || error.message;
-      alert(`❌ Failed to save rule: ${errorMsg}`);
+      const msg = error.response?.data?.message || error.response?.data?.error || error.message;
+      alert(`❌ Failed to save rule: ${msg}`);
     } finally {
       setIsSaving(false);
     }
   };
 
   const toggleObject = (obj: string) => {
-    setObjectClasses(prev => 
+    setObjectClasses(prev =>
       prev.includes(obj) ? prev.filter(o => o !== obj) : [...prev, obj]
     );
   };
@@ -123,21 +122,16 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
     <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
       <div className="bg-slate-900 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-700">
         <div className="p-8">
-          
+
           <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-800">
             <h2 className="text-3xl font-bold text-white">
               {rule ? '✏️ Modify Security Logic' : '➕ New Detection Rule'}
             </h2>
-            <button 
-              onClick={onClose}
-              className="text-gray-500 hover:text-white transition-colors"
-            >
-              <span className="text-3xl">✕</span>
-            </button>
+            <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-3xl">✕</button>
           </div>
 
           <div className="space-y-8">
-            
+
             {/* Rule Name */}
             <div className="bg-slate-950 p-6 rounded-xl border border-slate-800">
               <label className="block text-blue-400 text-xs font-bold uppercase tracking-widest mb-2">
@@ -152,7 +146,21 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
               />
             </div>
 
-            {/* Priority Level */}
+            {/* Description */}
+            <div className="bg-slate-950 p-6 rounded-xl border border-slate-800">
+              <label className="block text-blue-400 text-xs font-bold uppercase tracking-widest mb-2">
+                Description (optional)
+              </label>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="e.g., Alert when person enters restricted zone"
+                className="w-full bg-slate-900 text-white border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition"
+              />
+            </div>
+
+            {/* Priority */}
             <div>
               <label className="block text-gray-400 text-xs font-bold uppercase tracking-widest mb-4">Severity Tier</label>
               <div className="grid grid-cols-3 gap-4">
@@ -162,10 +170,10 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
                     type="button"
                     onClick={() => setPriority(p)}
                     className={`py-3 rounded-lg font-bold transition-all border-2 ${
-                      priority === p 
-                        ? p === 'info' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 
-                          p === 'warning' ? 'bg-yellow-600/20 border-yellow-500 text-yellow-400' : 
-                          'bg-red-600/20 border-red-500 text-red-400'
+                      priority === p
+                        ? p === 'info'     ? 'bg-blue-600/20 border-blue-500 text-blue-400'
+                        : p === 'warning'  ? 'bg-yellow-600/20 border-yellow-500 text-yellow-400'
+                        :                    'bg-red-600/20 border-red-500 text-red-400'
                         : 'bg-slate-950 border-slate-800 text-gray-500 hover:border-slate-600'
                     }`}
                   >
@@ -175,7 +183,7 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
               </div>
             </div>
 
-            {/* Detect Objects */}
+            {/* Object Classes */}
             <div>
               <label className="block text-gray-400 text-xs font-bold uppercase tracking-widest mb-4">
                 Target Classes ({objectClasses.length} active)
@@ -188,8 +196,8 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
                       type="button"
                       onClick={() => toggleObject(obj)}
                       className={`px-3 py-2 rounded-md text-xs font-semibold transition-all ${
-                        objectClasses.includes(obj) 
-                          ? 'bg-emerald-600 text-white' 
+                        objectClasses.includes(obj)
+                          ? 'bg-emerald-600 text-white'
                           : 'bg-slate-900 text-gray-500 hover:text-gray-300 border border-slate-800'
                       }`}
                     >
@@ -200,34 +208,73 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
               </div>
             </div>
 
-            {/* Minimum Confidence */}
+            {/* Confidence */}
             <div className="bg-slate-950 p-6 rounded-xl border border-slate-800">
               <div className="flex justify-between mb-4">
                 <label className="text-gray-400 text-xs font-bold uppercase tracking-widest">Model Sensitivity</label>
                 <span className="text-blue-400 font-mono">{(minConfidence * 100).toFixed(0)}%</span>
               </div>
               <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
+                type="range" min="0" max="1" step="0.05"
                 value={minConfidence}
                 onChange={(e) => setMinConfidence(parseFloat(e.target.value))}
                 className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
             </div>
 
-            {/* Alert Actions */}
+            {/* Cooldown */}
+            <div className="bg-slate-950 p-6 rounded-xl border border-slate-800">
+              <div className="flex justify-between mb-4">
+                <label className="text-gray-400 text-xs font-bold uppercase tracking-widest">Cooldown</label>
+                <span className="text-blue-400 font-mono">{cooldownMinutes} min</span>
+              </div>
+              <input
+                type="range" min="1" max="60" step="1"
+                value={cooldownMinutes}
+                onChange={(e) => setCooldownMinutes(parseInt(e.target.value))}
+                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+
+            {/* Time Range */}
+            <div className="bg-slate-950 p-6 rounded-xl border border-slate-800">
+              <div className="flex items-center justify-between mb-4">
+                <label className="text-gray-400 text-xs font-bold uppercase tracking-widest">Time Range Restriction</label>
+                <button
+                  type="button"
+                  onClick={() => setTimeRangeEnabled(!timeRangeEnabled)}
+                  className={`px-3 py-1 rounded text-xs font-bold ${timeRangeEnabled ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}
+                >
+                  {timeRangeEnabled ? 'ON' : 'OFF'}
+                </button>
+              </div>
+              {timeRangeEnabled && (
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <label className="text-xs text-slate-500 mb-1 block">Start</label>
+                    <input type="time" value={timeStart} onChange={e => setTimeStart(e.target.value)}
+                      className="w-full bg-slate-900 text-white border border-slate-700 rounded px-3 py-2" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-slate-500 mb-1 block">End</label>
+                    <input type="time" value={timeEnd} onChange={e => setTimeEnd(e.target.value)}
+                      className="w-full bg-slate-900 text-white border border-slate-700 rounded px-3 py-2" />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Checkbox label="🔔 Push Notification" checked={notificationEnabled} onChange={setNotificationEnabled} />
-              <Checkbox label="🔊 Audible Alarm" checked={audioEnabled} onChange={setAudioEnabled} />
-              <Checkbox label="💬 Discord Webhook" checked={discordEnabled} onChange={setDiscordEnabled} />
-              <Checkbox label="📸 Save Event Snapshot" checked={saveSnapshot} onChange={setSaveSnapshot} />
+              <Checkbox label="🔔 Push Notification"   checked={notificationEnabled} onChange={setNotificationEnabled} />
+              <Checkbox label="🔊 Audible Alarm"        checked={audioEnabled}        onChange={setAudioEnabled} />
+              <Checkbox label="💬 Discord Webhook"      checked={discordEnabled}      onChange={setDiscordEnabled} />
+              <Checkbox label="📸 Save Event Snapshot"  checked={saveSnapshot}        onChange={setSaveSnapshot} />
             </div>
 
           </div>
 
-          {/* Action Buttons */}
+          {/* Buttons */}
           <div className="flex gap-4 mt-12 pt-6 border-t border-slate-800">
             <button
               type="button"
@@ -235,7 +282,7 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
               disabled={isSaving}
               className="flex-1 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-lg shadow-lg transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50"
             >
-              {isSaving ? 'Synchronizing...' : rule ? 'Update Rule' : 'Deploy Rule'}
+              {isSaving ? 'Saving...' : rule ? 'Update Rule' : 'Deploy Rule'}
             </button>
             <button
               type="button"
@@ -246,13 +293,14 @@ function RuleBuilder({ rule, onClose }: RuleBuilderProps) {
               Cancel
             </button>
           </div>
+
         </div>
       </div>
     </div>
   );
 }
 
-const Checkbox = ({ label, checked, onChange }: { label: string, checked: boolean, onChange: (v: boolean) => void }) => (
+const Checkbox = ({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) => (
   <label className="flex items-center gap-3 bg-slate-950 border border-slate-800 p-4 rounded-xl cursor-pointer hover:border-slate-600 transition-all">
     <input
       type="checkbox"
