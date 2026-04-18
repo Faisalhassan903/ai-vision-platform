@@ -1,72 +1,77 @@
-import express from 'express';
-import Alert from '../models/Alert'; // ← CORRECT
+import express, { Request, Response } from 'express';
+import Alert from '../models/Alert';
 
 const router = express.Router();
 
-// GET all rules
-router.get('/', async (req, res) => {
+// POST /api/alerts — save new alert from LiveCamera
+router.post('/', async (req: Request, res: Response) => {
   try {
-    const rules = await AlertRule.find();
-    res.json(rules);
-  } catch (err: any) {
-    res.status(500).json({ message: err.message });
-  }
-});
+    const { ruleName, priority, message, cameraId, cameraName, analytics, detections } = req.body;
 
-// POST a new rule
-router.post('/', async (req, res) => {
-  console.log('Data received from frontend:', req.body);
-  try {
-    const newRule = new AlertRule(req.body);
-    await newRule.save();
-    res.status(201).json(newRule);
-  } catch (err: any) {
-    console.error('Mongoose Validation Error:', err.message);
-    res.status(400).json({ message: err.message });
-  }
-});
+    if (!ruleName || !priority) {
+      return res.status(400).json({ success: false, error: 'Missing required fields: ruleName and priority.' });
+    }
 
-// PATCH update a rule
-router.patch('/:id', async (req, res) => {
-  try {
-    const rule = await AlertRule.findByIdAndUpdate(
-      req.params.id,
-      { ...req.body, updatedAt: new Date() },
-      { new: true }
-    );
-    if (!rule) return res.status(404).json({ message: 'Rule not found' });
-    res.json(rule);
-  } catch (err: any) {
-    res.status(500).json({ message: err.message });
-  }
-});
+    const validPriorities = ['info', 'warning', 'critical'];
+    if (!validPriorities.includes(priority)) {
+      return res.status(400).json({ success: false, error: `Invalid priority. Must be: ${validPriorities.join(', ')}` });
+    }
 
-// PATCH /:id/trigger — called by LiveCamera when a rule fires
-// Increments triggerCount and updates lastTriggered timestamp
-router.patch('/:id/trigger', async (req, res) => {
-  try {
-    const rule = await AlertRule.findByIdAndUpdate(
-      req.params.id,
-      {
-        $inc: { triggerCount: 1 },
-        lastTriggered: new Date(),
+    const newAlert = new Alert({
+      ruleName,
+      priority,
+      message:    message    || `Security trigger: ${ruleName}`,
+      cameraId:   cameraId   || null,
+      cameraName: cameraName || 'Sentry_Node_01',
+      timestamp:  new Date(),
+      acknowledged: false,
+      analytics: {
+        device_id:      analytics?.device_id      || 'UNKNOWN_NODE',
+        primary_target: analytics?.primary_target || detections?.[0]?.class || 'unknown',
+        confidence_avg: analytics?.confidence_avg || 0,
       },
-      { new: true }
-    );
-    if (!rule) return res.status(404).json({ message: 'Rule not found' });
-    res.json({ success: true, triggerCount: rule.triggerCount, lastTriggered: rule.lastTriggered });
-  } catch (err: any) {
-    res.status(500).json({ message: err.message });
+      detections: (detections || []).map((d: any) => ({
+        class:      d.class      || 'unknown',
+        confidence: typeof d.confidence === 'number' ? d.confidence : 0,
+        bbox:       d.bbox       || null,
+      }))
+    });
+
+    const savedAlert = await newAlert.save();
+
+    const io = req.app.get('socketio');
+    if (io) io.emit('new-incident', savedAlert);
+
+    res.status(201).json({ success: true, alert: savedAlert });
+
+  } catch (error: any) {
+    console.error('🚨 Alert Save Failure:', error.message);
+    res.status(500).json({ success: false, error: 'Database rejection.', detail: error.message });
   }
 });
 
-// DELETE a rule
-router.delete('/:id', async (req, res) => {
+// GET /api/alerts — fetch recent alerts for dashboard
+router.get('/', async (req: Request, res: Response) => {
   try {
-    await AlertRule.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Rule deleted' });
-  } catch (err: any) {
-    res.status(500).json({ message: err.message });
+    const alerts = await Alert.find().sort({ timestamp: -1 }).limit(100);
+    res.json({ success: true, count: alerts.length, alerts });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve alerts.' });
+  }
+});
+
+// PATCH /api/alerts/:id/acknowledge
+router.patch('/:id/acknowledge', async (req: Request, res: Response) => {
+  try {
+    const alert = await Alert.findByIdAndUpdate(
+      req.params.id,
+      { acknowledged: true, acknowledgedAt: new Date() },
+      { new: true }
+    );
+    if (!alert) return res.status(404).json({ success: false, error: 'Alert not found.' });
+    res.json({ success: true, alert });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
