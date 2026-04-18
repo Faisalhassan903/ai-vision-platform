@@ -37,5 +37,24 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+outer.patch('/:id/trigger', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const rule = await AlertRule.findByIdAndUpdate(
+      id,
+      { 
+        $set: { lastTriggered: new Date() },
+        $inc: { triggerCount: 1 } 
+      },
+      { new: true }
+    );
+
+    if (!rule) return res.status(404).json({ error: 'Rule not found' });
+    
+    res.json({ success: true, rule });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 export default router;

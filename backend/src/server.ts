@@ -79,7 +79,7 @@ app.use('/api/cameras', cameraRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/vision', visionRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/rules', ruleRoutes);
+app.use('api/alerts/rules',ruleRoutes);
 
 // --- HEALTH ---
 app.get('/health', (req, res) => {
