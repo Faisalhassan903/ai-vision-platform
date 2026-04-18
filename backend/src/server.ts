@@ -9,7 +9,7 @@ import fs from 'fs';
 
 // Routes
 import alertRoutes from './routes/alertRoutes';
-import cameraRoutes from './routes/cameraRoutes';
+const cameraRoutes = require('./routes/cameraRoutes').default;
 import authRoutes from './routes/authRoutes';
 import visionRoutes from './routes/visionRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
