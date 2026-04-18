@@ -1,101 +1,72 @@
-import express, { Request, Response } from 'express';
-import Alert from '../models/Alert';
-
-// NO connectDB here — mongoose is already connected by server.ts before listen()
+import express from 'express';
+import AlertRule from '../models/AlertRule';
 
 const router = express.Router();
 
-/**
- * @route   POST /api/alerts
- */
-router.post('/', async (req: Request, res: Response) => {
+// GET all rules
+router.get('/', async (req, res) => {
   try {
-    const { ruleName, priority, message, cameraId, cameraName, analytics, detections } = req.body;
-
-    if (!ruleName || !priority) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: ruleName and priority.'
-      });
-    }
-
-    const validPriorities = ['info', 'warning', 'critical'];
-    if (!validPriorities.includes(priority)) {
-      return res.status(400).json({
-        success: false,
-        error: `Invalid priority. Must be one of: ${validPriorities.join(', ')}`
-      });
-    }
-
-    const newAlert = new Alert({
-      ruleName,
-      priority,
-      message:    message    || `Security trigger: ${ruleName}`,
-      cameraId:   cameraId   || null,
-      cameraName: cameraName || 'Sentry_Node_01',
-      timestamp:  new Date(),
-      acknowledged: false,
-      analytics: {
-        device_id:      analytics?.device_id      || 'UNKNOWN_NODE',
-        primary_target: analytics?.primary_target || detections?.[0]?.class || 'unknown',
-        confidence_avg: analytics?.confidence_avg || 0,
-      },
-      detections: (detections || []).map((d: any) => ({
-        class:      d.class      || 'unknown',
-        confidence: typeof d.confidence === 'number' ? d.confidence : 0,
-        bbox:       d.bbox       || null,
-      }))
-    });
-
-    const savedAlert = await newAlert.save();
-
-    const io = req.app.get('socketio');
-    if (io) io.emit('new-incident', savedAlert);
-
-    res.status(201).json({ success: true, alert: savedAlert });
-
-  } catch (error: any) {
-    console.error('🚨 Alert Save Failure:', error.message);
-    if (error.errors) {
-      Object.keys(error.errors).forEach(f => {
-        console.error(`  Field [${f}]:`, error.errors[f].message);
-      });
-    }
-    res.status(500).json({
-      success: false,
-      error:  'Database rejection on incident log.',
-      detail: error.message
-    });
+    const rules = await AlertRule.find();
+    res.json(rules);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
   }
 });
 
-/**
- * @route   GET /api/alerts
- */
-router.get('/', async (req: Request, res: Response) => {
+// POST a new rule
+router.post('/', async (req, res) => {
+  console.log('Data received from frontend:', req.body);
   try {
-    const alerts = await Alert.find().sort({ timestamp: -1 }).limit(100);
-    res.json({ success: true, count: alerts.length, alerts });
-  } catch (error: any) {
-    console.error('GET /api/alerts failed:', error.message);
-    res.status(500).json({ success: false, error: 'Failed to retrieve incident logs.' });
+    const newRule = new AlertRule(req.body);
+    await newRule.save();
+    res.status(201).json(newRule);
+  } catch (err: any) {
+    console.error('Mongoose Validation Error:', err.message);
+    res.status(400).json({ message: err.message });
   }
 });
 
-/**
- * @route   PATCH /api/alerts/:id/acknowledge
- */
-router.patch('/:id/acknowledge', async (req: Request, res: Response) => {
+// PATCH update a rule
+router.patch('/:id', async (req, res) => {
   try {
-    const alert = await Alert.findByIdAndUpdate(
+    const rule = await AlertRule.findByIdAndUpdate(
       req.params.id,
-      { acknowledged: true, acknowledgedAt: new Date() },
+      { ...req.body, updatedAt: new Date() },
       { new: true }
     );
-    if (!alert) return res.status(404).json({ success: false, error: 'Incident not found.' });
-    res.json({ success: true, alert });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    if (!rule) return res.status(404).json({ message: 'Rule not found' });
+    res.json(rule);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PATCH /:id/trigger — called by LiveCamera when a rule fires
+// Increments triggerCount and updates lastTriggered timestamp
+router.patch('/:id/trigger', async (req, res) => {
+  try {
+    const rule = await AlertRule.findByIdAndUpdate(
+      req.params.id,
+      {
+        $inc: { triggerCount: 1 },
+        lastTriggered: new Date(),
+      },
+      { new: true }
+    );
+    if (!rule) return res.status(404).json({ message: 'Rule not found' });
+    res.json({ success: true, triggerCount: rule.triggerCount, lastTriggered: rule.lastTriggered });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// DELETE a rule
+router.delete('/:id', async (req, res) => {
+  try {
+    await AlertRule.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Rule deleted' });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
   }
 });
 
