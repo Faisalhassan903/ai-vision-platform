@@ -37,6 +37,10 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+router.patch('/fallback/trigger', (req, res) => {
+  console.log("⚠️ Fallback rule triggered. No DB update performed.");
+  res.json({ success: true, message: "Fallback triggered locally" });
+});
 router.patch('/:id/trigger', async (req, res) => {
   try {
     const { id } = req.params;
