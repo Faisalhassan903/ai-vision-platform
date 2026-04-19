@@ -4,6 +4,7 @@ import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import axios from 'axios';
 import { API_BASE_URL } from '../config';
+import { CentroidTracker } from './Tracker';
 
 // ── CONFIG ─────────────────────────────────────────────────────────────────────
 const DETECTION_EVERY_N_FRAMES = 5;
@@ -272,7 +273,21 @@ export default function LiveCamera() {
     }
     if (isRunningRef.current) rafRef.current = requestAnimationFrame(detectionLoop);
   }, [sendAlert, evaluateRules]);
+//----uniqu object count -------------//
+const personTracker = new CentroidTracker();
 
+async function onFrame() {
+  const predictions = await model.detect(video);
+  
+  // This is the "Filter" that stops over-counting
+  const newPersonIDs = personTracker.update(predictions);
+
+  if (newPersonIDs.length > 0) {
+    // ONLY runs if a brand new person entered the frame
+    console.log(`Detected ${newPersonIDs.length} new unique person(s)!`);
+    sendToVercelTimeline(newPersonIDs); 
+  }
+}
   // ── START ─────────────────────────────────────────────────────────────────────
   const startCamera = async () => {
     if (isRunningRef.current) return;
