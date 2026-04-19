@@ -1,34 +1,26 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCameras } from '../hooks/useCameras';
-import * as tf from '@tensorflow/tfjs';
-import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import type { Camera, CameraType } from '../store';
+import VideoAnalysis from './VideoAnalysis';
 
 // ── CAMERA PRESETS ────────────────────────────────────────────────────────────
 const CAMERA_PRESETS = [
-  { brand: 'Hikvision',   rtspTemplate: 'rtsp://{username}:{password}@{ip}:{port}/Streaming/Channels/101', defaultPort: 554, instructions: 'Enable RTSP in camera settings. Channel 101 = Main stream.' },
-  { brand: 'Dahua',       rtspTemplate: 'rtsp://{username}:{password}@{ip}:{port}/cam/realmonitor?channel=1&subtype=0', defaultPort: 554, instructions: 'subtype=0 for main stream, subtype=1 for sub stream.' },
-  { brand: 'Reolink',     rtspTemplate: 'rtsp://{username}:{password}@{ip}:{port}/h264Preview_01_main', defaultPort: 554, instructions: 'Use h264Preview_01_sub for lower quality.' },
-  { brand: 'TP-Link Tapo',rtspTemplate: 'rtsp://{username}:{password}@{ip}:{port}/stream1', defaultPort: 554, instructions: 'Enable RTSP in Tapo app under Camera Settings > Advanced.' },
-  { brand: 'Wyze',        rtspTemplate: 'rtsp://{ip}:{port}/live', defaultPort: 8554, instructions: 'Requires RTSP firmware from Wyze website.' },
-  { brand: 'Custom',      rtspTemplate: '', defaultPort: 554, instructions: 'Enter complete RTSP URL manually.' },
+  { brand: 'Hikvision',    rtspTemplate: 'rtsp://{username}:{password}@{ip}:{port}/Streaming/Channels/101', defaultPort: 554, instructions: 'Enable RTSP in camera settings. Channel 101 = Main stream.' },
+  { brand: 'Dahua',        rtspTemplate: 'rtsp://{username}:{password}@{ip}:{port}/cam/realmonitor?channel=1&subtype=0', defaultPort: 554, instructions: 'subtype=0 for main stream, subtype=1 for sub stream.' },
+  { brand: 'Reolink',      rtspTemplate: 'rtsp://{username}:{password}@{ip}:{port}/h264Preview_01_main', defaultPort: 554, instructions: 'Use h264Preview_01_sub for lower quality.' },
+  { brand: 'TP-Link Tapo', rtspTemplate: 'rtsp://{username}:{password}@{ip}:{port}/stream1', defaultPort: 554, instructions: 'Enable RTSP in Tapo app under Camera Settings > Advanced.' },
+  { brand: 'Wyze',         rtspTemplate: 'rtsp://{ip}:{port}/live', defaultPort: 8554, instructions: 'Requires RTSP firmware from Wyze website.' },
+  { brand: 'Custom',       rtspTemplate: '', defaultPort: 554, instructions: 'Enter complete RTSP URL manually.' },
 ];
-
-// ── VIDEO ANALYSIS TYPES ──────────────────────────────────────────────────────
-interface AnalysisResult {
-  timestamp: number;
-  timeLabel: string;
-  detections: Array<{ class: string; confidence: number }>;
-}
 
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────────
 const CameraManagement: React.FC = () => {
   const { cameras, isLoading, error, addCamera, updateCamera, deleteCamera, testCamera, refreshCameras } = useCameras();
-  const [showAddModal,     setShowAddModal]     = useState(false);
-  const [editingCamera,    setEditingCamera]    = useState<Camera | null>(null);
-  const [testingId,        setTestingId]        = useState<string | null>(null);
-  const [testResult,       setTestResult]       = useState<{ id: string; success: boolean; error?: string } | null>(null);
-  const [activeTab,        setActiveTab]        = useState<'cameras' | 'analyze'>('cameras');
+  const [showAddModal,  setShowAddModal]  = useState(false);
+  const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
+  const [testingId,     setTestingId]     = useState<string | null>(null);
+  const [testResult,    setTestResult]    = useState<{ id: string; success: boolean; error?: string } | null>(null);
+  const [activeTab,     setActiveTab]     = useState<'cameras' | 'analyze'>('cameras');
 
   const handleTest = async (camera: Camera) => {
     setTestingId(camera.id);
@@ -75,7 +67,7 @@ const CameraManagement: React.FC = () => {
         <div className="flex bg-white/5 rounded-xl p-1 mb-6 w-full sm:w-fit">
           {(['cameras', 'analyze'] as const).map(t => (
             <button key={t} onClick={() => setActiveTab(t)}
-              className={`flex-1 sm:flex-none px-5 py-2 rounded-lg text-sm font-medium transition-all capitalize ${
+              className={`flex-1 sm:flex-none px-5 py-2 rounded-lg text-sm font-medium transition-all ${
                 activeTab === t ? 'bg-white/10 text-white' : 'text-white/35 hover:text-white/60'
               }`}>
               {t === 'analyze' ? 'Video Analysis' : 'Cameras'}
@@ -83,7 +75,7 @@ const CameraManagement: React.FC = () => {
           ))}
         </div>
 
-        {/* ── CAMERAS TAB ────────────────────────────────────────────────────── */}
+        {/* ── CAMERAS TAB ─────────────────────────────────────────────────── */}
         {activeTab === 'cameras' && (
           <>
             {error && (
@@ -119,7 +111,6 @@ const CameraManagement: React.FC = () => {
                     testResult={testResult?.id === camera.id ? testResult : null}
                   />
                 ))}
-                {/* Add card */}
                 <button onClick={() => setShowAddModal(true)}
                   className="border-2 border-dashed border-white/8 hover:border-white/20 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 transition-all group min-h-[180px]">
                   <div className="w-12 h-12 rounded-xl bg-white/5 group-hover:bg-white/8 flex items-center justify-center transition-all">
@@ -135,10 +126,10 @@ const CameraManagement: React.FC = () => {
             {/* Stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
               {[
-                { label: 'Total',   value: cameras.length,                                                       color: 'text-white' },
-                { label: 'Online',  value: cameras.filter(c => c.status === 'online').length,                    color: 'text-emerald-400' },
+                { label: 'Total',   value: cameras.length,                                                            color: 'text-white' },
+                { label: 'Online',  value: cameras.filter(c => c.status === 'online').length,                         color: 'text-emerald-400' },
                 { label: 'Offline', value: cameras.filter(c => c.status === 'offline' || c.status === 'error').length, color: 'text-red-400' },
-                { label: 'RTSP',    value: cameras.filter(c => c.type === 'rtsp').length,                        color: 'text-blue-400' },
+                { label: 'RTSP',    value: cameras.filter(c => c.type === 'rtsp').length,                             color: 'text-blue-400' },
               ].map(s => (
                 <div key={s.label} className="bg-white/3 border border-white/8 rounded-xl p-4">
                   <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
@@ -149,7 +140,7 @@ const CameraManagement: React.FC = () => {
           </>
         )}
 
-        {/* ── VIDEO ANALYSIS TAB ──────────────────────────────────────────── */}
+        {/* ── VIDEO ANALYSIS TAB ───────────────────────────────────────────── */}
         {activeTab === 'analyze' && <VideoAnalysis />}
 
       </div>
@@ -170,258 +161,6 @@ const CameraManagement: React.FC = () => {
   );
 };
 
-// ── VIDEO ANALYSIS COMPONENT ──────────────────────────────────────────────────
-const VideoAnalysis: React.FC = () => {
-  const videoRef    = useRef<HTMLVideoElement>(null);
-  const canvasRef   = useRef<HTMLCanvasElement>(null);
-  const modelRef    = useRef<cocoSsd.ObjectDetection | null>(null);
-  const fileRef     = useRef<HTMLInputElement>(null);
-
-  const [file,       setFile]       = useState<File | null>(null);
-  const [videoUrl,   setVideoUrl]   = useState<string | null>(null);
-  const [analyzing,  setAnalyzing]  = useState(false);
-  const [progress,   setProgress]   = useState(0);
-  const [results,    setResults]    = useState<AnalysisResult[]>([]);
-  const [summary,    setSummary]    = useState<Record<string, number>>({});
-  const [status,     setStatus]     = useState('');
-
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setFile(f);
-    setResults([]);
-    setSummary({});
-    setProgress(0);
-    setStatus('');
-    const url = URL.createObjectURL(f);
-    setVideoUrl(url);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const f = e.dataTransfer.files?.[0];
-    if (f && f.type.startsWith('video/')) {
-      setFile(f);
-      setResults([]);
-      setSummary({});
-      setProgress(0);
-      const url = URL.createObjectURL(f);
-      setVideoUrl(url);
-    }
-  };
-
-  const analyzeVideo = async () => {
-    if (!videoRef.current || !canvasRef.current || !file) return;
-    setAnalyzing(true);
-    setResults([]);
-    setSummary({});
-    setProgress(0);
-
-    try {
-      // Load model if needed
-      if (!modelRef.current) {
-        setStatus('Loading AI model…');
-        await tf.setBackend('webgl').catch(() => tf.setBackend('cpu'));
-        await tf.ready();
-        modelRef.current = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-      }
-
-      const video    = videoRef.current;
-      const canvas   = canvasRef.current;
-      const ctx      = canvas.getContext('2d')!;
-      const duration = video.duration;
-      const STEP     = 2; // analyse every 2 seconds
-      const frames   = Math.floor(duration / STEP);
-      const collected: AnalysisResult[] = [];
-      const classTotals: Record<string, number> = {};
-
-      for (let i = 0; i <= frames; i++) {
-        const t = i * STEP;
-        setProgress(Math.round((i / frames) * 100));
-        setStatus(`Analysing frame ${i + 1} of ${frames + 1}…`);
-
-        // Seek video to timestamp
-        await new Promise<void>(resolve => {
-          video.currentTime = t;
-          video.onseeked = () => resolve();
-        });
-
-        // Draw frame to canvas
-        canvas.width  = video.videoWidth  || 640;
-        canvas.height = video.videoHeight || 360;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-        // Run detection
-        const preds = await modelRef.current!.detect(canvas, 6, 0.35);
-
-        if (preds.length > 0) {
-          const mins = Math.floor(t / 60);
-          const secs = Math.floor(t % 60);
-          collected.push({
-            timestamp: t,
-            timeLabel: `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`,
-            detections: preds.map(p => ({ class: p.class, confidence: p.score })),
-          });
-          preds.forEach(p => {
-            classTotals[p.class] = (classTotals[p.class] || 0) + 1;
-          });
-        }
-      }
-
-      setResults(collected);
-      setSummary(classTotals);
-      setStatus(`Done — ${collected.length} frames with detections`);
-      setProgress(100);
-
-    } catch (err: any) {
-      setStatus(`Error: ${err.message}`);
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  const jumpTo = (t: number) => {
-    if (videoRef.current) videoRef.current.currentTime = t;
-  };
-
-  const topClasses = Object.entries(summary).sort((a, b) => b[1] - a[1]);
-
-  return (
-    <div className="space-y-5">
-
-      {/* Upload area */}
-      <div
-        onDrop={handleDrop}
-        onDragOver={e => e.preventDefault()}
-        onClick={() => !file && fileRef.current?.click()}
-        className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer ${
-          file ? 'border-white/15 bg-white/3' : 'border-white/10 hover:border-white/20 hover:bg-white/3'
-        }`}
-      >
-        <input ref={fileRef} type="file" accept="video/*" onChange={handleFile} className="hidden" />
-        {!file ? (
-          <>
-            <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/8 flex items-center justify-center mx-auto mb-3">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff40" strokeWidth="1.75">
-                <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/>
-              </svg>
-            </div>
-            <p className="text-white/50 text-sm font-medium">Drop a video file here</p>
-            <p className="text-white/20 text-xs mt-1">or click to browse · MP4, MOV, AVI supported</p>
-          </>
-        ) : (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 text-left">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center flex-shrink-0">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2">
-                  <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/>
-                </svg>
-              </div>
-              <div>
-                <p className="text-white/80 text-sm font-medium truncate max-w-[200px]">{file.name}</p>
-                <p className="text-white/30 text-xs">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
-              </div>
-            </div>
-            <button onClick={e => { e.stopPropagation(); setFile(null); setVideoUrl(null); setResults([]); setSummary({}); }}
-              className="text-white/25 hover:text-white/50 transition-colors">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Video player + canvas */}
-      {videoUrl && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-black rounded-2xl overflow-hidden">
-            <video ref={videoRef} src={videoUrl} controls className="w-full" />
-          </div>
-          <div className="bg-black rounded-2xl overflow-hidden flex items-center justify-center">
-            <canvas ref={canvasRef} className="w-full h-auto" />
-            {!analyzing && results.length === 0 && (
-              <p className="absolute text-white/20 text-xs">Analysis preview will appear here</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Analyse button */}
-      {file && (
-        <button onClick={analyzeVideo} disabled={analyzing}
-          className="w-full py-3 bg-red-500 hover:bg-red-400 disabled:bg-red-500/40 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2">
-          {analyzing ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              {status}
-            </>
-          ) : (
-            <>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-              Analyse Video
-            </>
-          )}
-        </button>
-      )}
-
-      {/* Progress bar */}
-      {analyzing && (
-        <div className="bg-white/5 rounded-full h-1.5 overflow-hidden">
-          <div className="h-full bg-red-500 transition-all duration-300 rounded-full" style={{ width: `${progress}%` }} />
-        </div>
-      )}
-
-      {/* Summary */}
-      {topClasses.length > 0 && (
-        <div className="bg-white/3 border border-white/8 rounded-2xl p-5">
-          <h3 className="text-white text-sm font-semibold mb-4">Objects Found</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {topClasses.map(([cls, count]) => (
-              <div key={cls} className="bg-white/5 rounded-xl p-3 text-center">
-                <p className="text-2xl font-bold text-white">{count}</p>
-                <p className="text-white/40 text-xs mt-0.5 capitalize">{cls}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Timeline results */}
-      {results.length > 0 && (
-        <div className="bg-white/3 border border-white/8 rounded-2xl p-5">
-          <h3 className="text-white text-sm font-semibold mb-4">
-            Detection Timeline
-            <span className="text-white/30 font-normal ml-2">— click a row to jump to that moment</span>
-          </h3>
-          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-            {results.map((r, i) => (
-              <button key={i} onClick={() => jumpTo(r.timestamp)}
-                className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/3 hover:bg-white/6 border border-white/5 hover:border-white/10 transition-all text-left">
-                <span className="text-white/50 font-mono text-xs w-10 flex-shrink-0">{r.timeLabel}</span>
-                <div className="flex flex-wrap gap-1.5 flex-1">
-                  {r.detections.slice(0, 5).map((d, j) => (
-                    <span key={j} className="px-2 py-0.5 rounded-full bg-red-500/15 border border-red-500/20 text-red-300 text-[10px] font-medium capitalize">
-                      {d.class} {Math.round(d.confidence * 100)}%
-                    </span>
-                  ))}
-                  {r.detections.length > 5 && (
-                    <span className="px-2 py-0.5 rounded-full bg-white/8 text-white/30 text-[10px]">
-                      +{r.detections.length - 5}
-                    </span>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ── CAMERA CARD ───────────────────────────────────────────────────────────────
 interface CameraCardProps {
   camera: Camera; onEdit: () => void; onDelete: () => void; onTest: () => void;
@@ -430,7 +169,8 @@ interface CameraCardProps {
 
 const CameraCard: React.FC<CameraCardProps> = ({ camera, onEdit, onDelete, onTest, isTesting, testResult }) => {
   const statusDot: Record<string, string> = {
-    online: 'bg-emerald-400', offline: 'bg-white/20', connecting: 'bg-yellow-400 animate-pulse', error: 'bg-red-500',
+    online: 'bg-emerald-400', offline: 'bg-white/20',
+    connecting: 'bg-yellow-400 animate-pulse', error: 'bg-red-500',
   };
 
   return (
@@ -438,24 +178,18 @@ const CameraCard: React.FC<CameraCardProps> = ({ camera, onEdit, onDelete, onTes
       camera.status === 'online' ? 'border-emerald-500/20' :
       camera.status === 'error'  ? 'border-red-500/20' : 'border-white/8'
     }`}>
-      {/* Preview */}
       <div className="aspect-video bg-black relative flex items-center justify-center">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ffffff15" strokeWidth="1.5">
           <path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14"/>
           <rect x="2" y="7" width="13" height="10" rx="2"/>
         </svg>
-
-        {/* Status */}
         <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/60 px-2.5 py-1 rounded-full">
           <div className={`w-1.5 h-1.5 rounded-full ${statusDot[camera.status] || 'bg-white/20'}`} />
           <span className="text-[10px] text-white/50 capitalize">{camera.status}</span>
         </div>
-
         <div className="absolute top-3 right-3 bg-black/60 px-2 py-0.5 rounded text-[9px] text-white/25 font-mono">
           {camera.id.slice(0, 8)}
         </div>
-
-        {/* Test result overlay */}
         {testResult && (
           <div className={`absolute inset-0 flex items-center justify-center ${testResult.success ? 'bg-emerald-500/80' : 'bg-red-500/80'}`}>
             <div className="text-center text-white">
@@ -466,7 +200,6 @@ const CameraCard: React.FC<CameraCardProps> = ({ camera, onEdit, onDelete, onTes
         )}
       </div>
 
-      {/* Info */}
       <div className="p-4">
         <div className="flex justify-between items-start mb-3">
           <div className="flex-1 min-w-0">
@@ -479,20 +212,17 @@ const CameraCard: React.FC<CameraCardProps> = ({ camera, onEdit, onDelete, onTes
             {camera.enabled ? 'Enabled' : 'Disabled'}
           </span>
         </div>
-
         {camera.streamUrl && (
           <p className="text-[10px] text-white/20 font-mono truncate mb-3">
             {camera.streamUrl.replace(/\/\/.*:.*@/, '//●●●:●●●@')}
           </p>
         )}
-
         <div className="flex gap-2">
           <button onClick={onTest} disabled={isTesting}
             className="flex-1 py-2 bg-white/5 hover:bg-white/8 border border-white/8 rounded-xl text-xs text-white/60 hover:text-white transition-all disabled:opacity-40 flex items-center justify-center gap-1.5">
-            {isTesting ? <div className="w-3 h-3 border border-white/40 border-t-transparent rounded-full animate-spin" /> : 
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
+            {isTesting
+              ? <div className="w-3 h-3 border border-white/40 border-t-transparent rounded-full animate-spin" />
+              : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             }
             {isTesting ? 'Testing' : 'Test'}
           </button>
@@ -506,8 +236,10 @@ const CameraCard: React.FC<CameraCardProps> = ({ camera, onEdit, onDelete, onTes
           <button onClick={onDelete}
             className="px-3 py-2 bg-red-500/8 hover:bg-red-500/15 border border-red-500/15 rounded-xl text-red-400/60 hover:text-red-400 transition-all">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-              <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+              <path d="M10 11v6"/><path d="M14 11v6"/>
+              <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
             </svg>
           </button>
         </div>
@@ -516,22 +248,25 @@ const CameraCard: React.FC<CameraCardProps> = ({ camera, onEdit, onDelete, onTes
   );
 };
 
-// ── ADD CAMERA MODAL ──────────────────────────────────────────────────────────
+// ── ADD / EDIT CAMERA MODAL ───────────────────────────────────────────────────
 interface AddCameraModalProps {
-  camera: Camera | null; onClose: () => void; onSave: (c: Partial<Camera>) => Promise<void>;
+  camera: Camera | null;
+  onClose: () => void;
+  onSave: (c: Partial<Camera>) => Promise<void>;
 }
 
 const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave }) => {
-  const [step,            setStep]            = useState(1);
-  const [cameraType,      setCameraType]      = useState<CameraType>(camera?.type || 'webcam');
-  const [selectedPreset,  setSelectedPreset]  = useState<typeof CAMERA_PRESETS[0] | null>(null);
-  const [isSaving,        setIsSaving]        = useState(false);
-  const [webcamDevices,   setWebcamDevices]   = useState<MediaDeviceInfo[]>([]);
-  const [selectedDevice,  setSelectedDevice]  = useState(camera?.deviceId || '');
-  const [formData,        setFormData]        = useState({
-    name: camera?.name || '', location: camera?.location || '', streamUrl: camera?.streamUrl || '',
-    username: camera?.username || '', password: camera?.password || '',
-    ip: '', port: '554', enabled: camera?.enabled !== false,
+  const [step,           setStep]           = useState(1);
+  const [cameraType,     setCameraType]     = useState<CameraType>(camera?.type || 'webcam');
+  const [selectedPreset, setSelectedPreset] = useState<typeof CAMERA_PRESETS[0] | null>(null);
+  const [isSaving,       setIsSaving]       = useState(false);
+  const [webcamDevices,  setWebcamDevices]  = useState<MediaDeviceInfo[]>([]);
+  const [selectedDevice, setSelectedDevice] = useState(camera?.deviceId || '');
+  const [formData,       setFormData]       = useState({
+    name: camera?.name || '', location: camera?.location || '',
+    streamUrl: camera?.streamUrl || '', username: camera?.username || '',
+    password: camera?.password || '', ip: '', port: '554',
+    enabled: camera?.enabled !== false,
   });
 
   useEffect(() => {
@@ -547,8 +282,10 @@ const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave
   const buildRtspUrl = () => {
     if (!selectedPreset || !formData.ip) return '';
     return selectedPreset.rtspTemplate
-      .replace('{ip}', formData.ip).replace('{port}', formData.port || String(selectedPreset.defaultPort))
-      .replace('{username}', formData.username || 'admin').replace('{password}', formData.password || 'password');
+      .replace('{ip}',       formData.ip)
+      .replace('{port}',     formData.port || String(selectedPreset.defaultPort))
+      .replace('{username}', formData.username || 'admin')
+      .replace('{password}', formData.password || 'password');
   };
 
   const handleSave = async () => {
@@ -557,8 +294,9 @@ const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave
       await onSave({
         name:      formData.name || `Camera ${Date.now()}`,
         type:      cameraType,
-        streamUrl: cameraType === 'rtsp' ? (selectedPreset?.brand === 'Custom' ? formData.streamUrl : buildRtspUrl()) :
-                   cameraType === 'http' ? formData.streamUrl : undefined,
+        streamUrl: cameraType === 'rtsp'
+          ? (selectedPreset?.brand === 'Custom' ? formData.streamUrl : buildRtspUrl())
+          : cameraType === 'http' ? formData.streamUrl : undefined,
         username:  formData.username || undefined,
         password:  formData.password || undefined,
         deviceId:  cameraType === 'webcam' ? selectedDevice : undefined,
@@ -585,16 +323,16 @@ const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave
 
         <div className="p-5 overflow-y-auto flex-1 space-y-4">
 
-          {/* Step 1: Type */}
+          {/* Step 1 — type selection */}
           {step === 1 && (
             <>
               <p className="text-white/40 text-sm">What type of camera are you adding?</p>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { type: 'webcam' as CameraType, label: 'USB / Webcam', sub: 'Built-in or USB' },
-                  { type: 'rtsp'   as CameraType, label: 'IP Camera',    sub: 'Hikvision, Dahua…' },
-                  { type: 'http'   as CameraType, label: 'HTTP Stream',  sub: 'MJPEG / HLS' },
-                  { type: 'file'   as CameraType, label: 'Video File',   sub: 'For testing' },
+                  { type: 'webcam' as CameraType, label: 'USB / Webcam',   sub: 'Built-in or USB' },
+                  { type: 'rtsp'   as CameraType, label: 'IP Camera',      sub: 'Hikvision, Dahua…' },
+                  { type: 'http'   as CameraType, label: 'HTTP Stream',    sub: 'MJPEG / HLS' },
+                  { type: 'file'   as CameraType, label: 'Video File',     sub: 'For testing' },
                 ].map(o => (
                   <button key={o.type} onClick={() => setCameraType(o.type)}
                     className={`p-4 rounded-xl border-2 text-left transition-all ${
@@ -612,7 +350,7 @@ const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave
             </>
           )}
 
-          {/* Step 2: Config */}
+          {/* Step 2 — configuration */}
           {step === 2 && (
             <>
               <button onClick={() => setStep(1)} className="text-white/30 hover:text-white text-sm flex items-center gap-1 transition-colors">
@@ -645,7 +383,11 @@ const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave
                   ) : (
                     <select value={selectedDevice} onChange={e => setSelectedDevice(e.target.value)}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-white/25 transition-all">
-                      {webcamDevices.map(d => <option key={d.deviceId} value={d.deviceId}>{d.label || `Camera ${d.deviceId.slice(0,8)}`}</option>)}
+                      {webcamDevices.map(d => (
+                        <option key={d.deviceId} value={d.deviceId}>
+                          {d.label || `Camera ${d.deviceId.slice(0, 8)}`}
+                        </option>
+                      ))}
                     </select>
                   )}
                 </div>
@@ -655,13 +397,20 @@ const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave
                 <>
                   <div>
                     <label className="text-white/40 text-xs mb-1.5 block">Camera brand</label>
-                    <select value={selectedPreset?.brand || ''} onChange={e => { const p = CAMERA_PRESETS.find(x => x.brand === e.target.value); setSelectedPreset(p||null); if(p) update('port', String(p.defaultPort)); }}
+                    <select
+                      value={selectedPreset?.brand || ''}
+                      onChange={e => {
+                        const p = CAMERA_PRESETS.find(x => x.brand === e.target.value);
+                        setSelectedPreset(p || null);
+                        if (p) update('port', String(p.defaultPort));
+                      }}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-white/25 transition-all">
                       <option value="">Select brand…</option>
                       {CAMERA_PRESETS.map(p => <option key={p.brand} value={p.brand}>{p.brand}</option>)}
                     </select>
                     {selectedPreset && <p className="text-white/25 text-xs mt-1.5">{selectedPreset.instructions}</p>}
                   </div>
+
                   {selectedPreset && selectedPreset.brand !== 'Custom' && (
                     <div className="grid grid-cols-3 gap-3">
                       <div className="col-span-2">
@@ -676,6 +425,7 @@ const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave
                       </div>
                     </div>
                   )}
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-white/40 text-xs mb-1.5 block">Username</label>
@@ -688,6 +438,7 @@ const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-white/20 outline-none focus:border-white/25 transition-all" />
                     </div>
                   </div>
+
                   {(!selectedPreset || selectedPreset.brand === 'Custom') && (
                     <div>
                       <label className="text-white/40 text-xs mb-1.5 block">RTSP URL *</label>
@@ -701,7 +452,9 @@ const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave
 
               {(cameraType === 'http' || cameraType === 'file') && (
                 <div>
-                  <label className="text-white/40 text-xs mb-1.5 block">{cameraType === 'http' ? 'Stream URL *' : 'File URL *'}</label>
+                  <label className="text-white/40 text-xs mb-1.5 block">
+                    {cameraType === 'http' ? 'Stream URL *' : 'File URL *'}
+                  </label>
                   <input value={formData.streamUrl} onChange={e => update('streamUrl', e.target.value)}
                     placeholder={cameraType === 'http' ? 'http://192.168.1.100/video.mjpg' : '/videos/sample.mp4'}
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white font-mono placeholder-white/20 outline-none focus:border-white/25 transition-all" />
@@ -727,7 +480,7 @@ const AddCameraModal: React.FC<AddCameraModalProps> = ({ camera, onClose, onSave
                 </button>
                 <button onClick={handleSave} disabled={!formData.name || isSaving}
                   className="flex-1 py-3 bg-red-500 hover:bg-red-400 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-all flex items-center justify-center gap-2">
-                  {isSaving ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : null}
+                  {isSaving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                   {isSaving ? 'Saving…' : camera ? 'Save Changes' : 'Add Camera'}
                 </button>
               </div>
