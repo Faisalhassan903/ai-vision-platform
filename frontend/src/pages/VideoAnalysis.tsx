@@ -26,7 +26,7 @@ const CLASS_COLORS: Record<string, string> = {
   'dining table':'#06b6d4',
   bottle:       '#a78bfa',
   laptop:       '#34d399',
-  cell phone:   '#fb7185',
+  cellphone:   '#fb7185',
   backpack:     '#fbbf24',
   handbag:      '#c084fc',
 };
