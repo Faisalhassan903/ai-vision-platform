@@ -1,7 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAlerts } from '../hooks/useAlerts';
 
-// ── SVG ICONS — realistic, clean, no emojis ──────────────────────────────────
 const Icons = {
   camera: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -82,7 +81,6 @@ function Navigation() {
     { path: '/telegram',  label: 'Telegram',   icon: Icons.telegram },
   ];
 
-  // Items shown in mobile bottom bar (most used)
   const mobileItems = [
     { path: '/live',      label: 'Camera',    icon: Icons.camera  },
     { path: '/alerts',    label: 'Incidents', icon: Icons.alert,  badge: unreadCount },
@@ -93,19 +91,19 @@ function Navigation() {
 
   return (
     <>
-      {/* ── DESKTOP NAV (top bar, hidden on mobile) ─────────────────────────── */}
-      <nav className="hidden md:block bg-[#080c12] border-b border-white/5 sticky top-0 z-50">
+      {/* DESKTOP NAV */}
+      <nav className="hidden md:block bg-[#060a13]/95 backdrop-blur-xl border-b border-white/[0.06] sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex items-center justify-between h-14">
 
             {/* Logo */}
             <Link to="/live" className="flex items-center gap-2.5 group">
-              <div className="w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 group-hover:bg-red-500/20 transition-colors">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-500/20 to-red-600/10 border border-red-500/30 flex items-center justify-center text-red-400 group-hover:border-red-500/50 group-hover:shadow-glow-red transition-all duration-300">
                 {Icons.logo}
               </div>
               <div>
-                <p className="text-xs font-bold tracking-tight text-white leading-none">SENTRY HUB</p>
-                <p className="text-[9px] text-white/20 font-mono leading-none mt-0.5">v4.0 · ACTIVE</p>
+                <p className="text-[11px] font-bold tracking-tight text-white leading-none">SENTRY AI</p>
+                <p className="text-[9px] text-white/20 font-mono leading-none mt-0.5">v4.0 &middot; ACTIVE</p>
               </div>
             </Link>
 
@@ -115,20 +113,25 @@ function Navigation() {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium tracking-wide transition-all ${
+                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium tracking-wide transition-all duration-200 ${
                     isActive(item.path)
-                      ? 'bg-white/10 text-white'
-                      : 'text-white/35 hover:text-white/70 hover:bg-white/5'
+                      ? 'bg-white/[0.08] text-white shadow-sm'
+                      : 'text-white/35 hover:text-white/70 hover:bg-white/[0.04]'
                   }`}
                 >
-                  <span className={isActive(item.path) ? 'text-white' : 'text-white/40'}>
+                  <span className={`transition-colors duration-200 ${isActive(item.path) ? 'text-white' : 'text-white/40'}`}>
                     {item.icon}
                   </span>
                   <span className="hidden lg:block">{item.label}</span>
 
+                  {/* Active indicator line */}
+                  {isActive(item.path) && (
+                    <span className="absolute -bottom-[9px] left-1/2 -translate-x-1/2 w-4 h-0.5 rounded-full bg-red-500/80" />
+                  )}
+
                   {/* Badge */}
                   {(item as any).badge > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white px-1">
+                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white px-1 shadow-lg shadow-red-500/30 animate-pulse-glow">
                       {(item as any).badge > 9 ? '9+' : (item as any).badge}
                     </span>
                   )}
@@ -136,20 +139,24 @@ function Navigation() {
               ))}
             </div>
 
+            {/* Status indicator */}
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] text-white/25 font-mono">ONLINE</span>
+            </div>
           </div>
         </div>
       </nav>
 
-      {/* ── MOBILE TOP BAR (logo only) ──────────────────────────────────────── */}
-      <div className="md:hidden flex items-center justify-between px-4 h-12 bg-[#080c12] border-b border-white/5 sticky top-0 z-50">
+      {/* MOBILE TOP BAR */}
+      <div className="md:hidden flex items-center justify-between px-4 h-12 bg-[#060a13]/95 backdrop-blur-xl border-b border-white/[0.06] sticky top-0 z-50">
         <Link to="/live" className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-md bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
+          <div className="w-7 h-7 rounded-md bg-red-500/15 border border-red-500/25 flex items-center justify-center text-red-400">
             {Icons.logo}
           </div>
-          <span className="text-xs font-bold text-white tracking-tight">SENTRY HUB</span>
+          <span className="text-xs font-bold text-white tracking-tight">SENTRY AI</span>
         </Link>
 
-        {/* Unread badge on mobile top */}
         {unreadCount > 0 && (
           <Link to="/alerts" className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-semibold">
             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
@@ -158,8 +165,8 @@ function Navigation() {
         )}
       </div>
 
-      {/* ── MOBILE BOTTOM TAB BAR ───────────────────────────────────────────── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#080c12]/95 backdrop-blur-md border-t border-white/5">
+      {/* MOBILE BOTTOM TAB BAR */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#060a13]/95 backdrop-blur-xl border-t border-white/[0.06]">
         <div className="flex items-stretch h-16">
           {mobileItems.map((item) => (
             <Link
@@ -169,17 +176,13 @@ function Navigation() {
                 isActive(item.path) ? 'text-white' : 'text-white/25 active:text-white/60'
               }`}
             >
-              {/* Active indicator */}
               {isActive(item.path) && (
                 <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-red-500" />
               )}
-
               <span className={isActive(item.path) ? 'text-white' : 'text-white/30'}>
                 {item.icon}
               </span>
               <span className="text-[9px] font-medium tracking-wide">{item.label}</span>
-
-              {/* Badge */}
               {(item as any).badge > 0 && (
                 <span className="absolute top-2 right-[calc(50%-14px)] min-w-[14px] h-3.5 flex items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white px-1">
                   {(item as any).badge > 9 ? '9+' : (item as any).badge}
@@ -188,12 +191,9 @@ function Navigation() {
             </Link>
           ))}
         </div>
-
-        {/* iPhone home indicator safe area */}
-        <div className="h-safe-area-inset-bottom bg-[#080c12]" />
+        <div className="h-safe-area-inset-bottom bg-[#060a13]" />
       </nav>
 
-      {/* ── MOBILE BOTTOM PADDING — prevents content hiding behind tab bar ─── */}
       <div className="md:hidden h-16" />
     </>
   );

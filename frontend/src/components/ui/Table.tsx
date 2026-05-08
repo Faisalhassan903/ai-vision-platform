@@ -1,4 +1,4 @@
-import  type { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 interface TableProps {
   headers: string[];
@@ -7,21 +7,21 @@ interface TableProps {
 
 function Table({ headers, children }: TableProps) {
   return (
-    <div className="bg-dark-card border border-dark-border rounded-xl overflow-hidden">
+    <div className="bg-dark-card/60 backdrop-blur-sm border border-dark-border rounded-xl overflow-hidden">
       <table className="w-full">
-        <thead className="bg-dark-bg">
-          <tr>
+        <thead>
+          <tr className="border-b border-dark-border bg-surface/50">
             {headers.map((header, index) => (
               <th 
                 key={index}
-                className="px-6 py-4 text-left text-sm font-semibold text-primary-blue border-b-2 border-dark-border"
+                className="px-5 py-3.5 text-left text-[11px] font-semibold text-white/40 uppercase tracking-wider"
               >
                 {header}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-dark-border/50">
           {children}
         </tbody>
       </table>
@@ -29,16 +29,20 @@ function Table({ headers, children }: TableProps) {
   );
 }
 
-// TableRow component
 interface TableRowProps {
   children: ReactNode;
   onClick?: () => void;
+  highlight?: boolean;
 }
 
-function TableRow({ children, onClick }: TableRowProps) {
+function TableRow({ children, onClick, highlight = false }: TableRowProps) {
   return (
     <tr 
-      className={`border-b border-dark-border hover:bg-dark-bg transition-colors ${onClick ? 'cursor-pointer' : ''}`}
+      className={`
+        transition-colors duration-150
+        ${highlight ? 'bg-red-500/5' : 'hover:bg-white/[0.02]'}
+        ${onClick ? 'cursor-pointer' : ''}
+      `}
       onClick={onClick}
     >
       {children}
@@ -46,7 +50,6 @@ function TableRow({ children, onClick }: TableRowProps) {
   );
 }
 
-// TableCell component
 interface TableCellProps {
   children: ReactNode;
   className?: string;
@@ -54,11 +57,10 @@ interface TableCellProps {
 
 function TableCell({ children, className = '' }: TableCellProps) {
   return (
-    <td className={`px-6 py-4 text-sm text-gray-300 ${className}`}>
+    <td className={`px-5 py-4 text-sm text-white/70 ${className}`}>
       {children}
     </td>
   );
 }
 
-// Export as object for grouped imports
 export { Table, TableRow, TableCell };

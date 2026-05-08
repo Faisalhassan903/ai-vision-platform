@@ -1,31 +1,36 @@
-interface StatCardProps{
-    icon:string;
-    value:number|string;
-    label:string;
-    trend?:{
-
-        value:number;
-        isPositive:boolean;
-    },
+interface StatCardProps {
+  label: string;
+  value: string | number;
+  icon?: React.ReactNode;
+  trend?: 'up' | 'down' | 'neutral';
+  variant?: 'default' | 'highlight' | 'danger';
 }
-function StatCard({icon,value,label,trend}:StatCardProps){
-return(
 
+function StatCard({ label, value, icon, trend, variant = 'default' }: StatCardProps) {
+  const variantStyles = {
+    default: 'border-dark-border bg-dark-card/60',
+    highlight: 'border-blue-500/20 bg-blue-500/5',
+    danger: 'border-red-500/20 bg-red-500/5',
+  };
 
+  const trendColors = {
+    up: 'text-emerald-400',
+    down: 'text-red-400',
+    neutral: 'text-white/30',
+  };
 
-
-     <div className="bg-dark-card border border-dark-border rounded-xl p-6 flex items-center gap-4 hover:border-primary-blue transition-colors">
-      <div className="text-5xl">{icon}</div>
-      
-      <div className="flex-1">
-        <div className="text-4xl font-bold text-primary-blue">{value}</div>
-             <div className="text-sm text-gray-400 mt-1">{label}</div>
-        
+  return (
+    <div className={`rounded-xl border backdrop-blur-sm p-4 ${variantStyles[variant]}`}>
+      <div className="flex items-start justify-between mb-3">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-white/40">{label}</p>
+        {icon && <span className="text-white/30">{icon}</span>}
+      </div>
+      <div className="flex items-end gap-2">
+        <p className="text-2xl font-bold text-white tracking-tight">{value}</p>
         {trend && (
-          <div className={`text-xs mt-2 flex items-center gap-1 ${trend.isPositive ? 'text-accent-green' : 'text-red-400'}`}>
-            <span>{trend.isPositive ? '↑' : '↓'}</span>
-            <span>{Math.abs(trend.value)}%</span>
-          </div>
+          <span className={`text-xs font-medium ${trendColors[trend]} mb-0.5`}>
+            {trend === 'up' ? '+' : trend === 'down' ? '-' : ''}
+          </span>
         )}
       </div>
     </div>

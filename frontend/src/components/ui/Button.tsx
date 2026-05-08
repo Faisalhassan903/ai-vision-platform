@@ -3,10 +3,11 @@ import type { ReactNode, MouseEvent } from 'react';
 interface ButtonProps {
   children: ReactNode;
   onClick?: (e: MouseEvent<HTMLButtonElement>) => void;
-  variant?: 'primary' | 'secondary' | 'danger';
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
   size?: 'sm' | 'md' | 'lg';
   disabled?: boolean;
   className?: string;
+  icon?: ReactNode;
 }
 
 function Button({ 
@@ -15,24 +16,23 @@ function Button({
   variant = 'primary', 
   size = 'md',
   disabled = false,
-  className = ''
+  className = '',
+  icon,
 }: ButtonProps) {
   
-  // Base styles (always applied)
-  const baseStyles = 'font-semibold rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed';
+  const baseStyles = 'inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed';
   
-  // Variant styles (color schemes)
   const variantStyles = {
-    primary: 'bg-blue-600 hover:bg-blue-700 text-white',
-    secondary: 'bg-gray-600 hover:bg-gray-700 text-white',
-    danger: 'bg-red-600 hover:bg-red-700 text-white',
+    primary: 'bg-primary-blue hover:bg-primary-blue-hover text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30',
+    secondary: 'bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 hover:border-white/20',
+    danger: 'bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/20 hover:border-red-500/30',
+    ghost: 'hover:bg-white/5 text-white/50 hover:text-white/80',
   };
   
-  // Size styles
   const sizeStyles = {
-    sm: 'px-3 py-1.5 text-sm',
-    md: 'px-5 py-2.5 text-base',
-    lg: 'px-6 py-3 text-lg',
+    sm: 'px-3 py-1.5 text-xs',
+    md: 'px-4 py-2 text-sm',
+    lg: 'px-6 py-2.5 text-sm',
   };
   
   return (
@@ -41,6 +41,7 @@ function Button({
       disabled={disabled}
       className={`${baseStyles} ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
     >
+      {icon && <span className="w-4 h-4 flex items-center justify-center">{icon}</span>}
       {children}
     </button>
   );
