@@ -1,4 +1,13 @@
 "use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -9,90 +18,108 @@ const http_1 = require("http");
 const socket_io_1 = require("socket.io");
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
-// Route Imports
+const mongoose_1 = __importDefault(require("mongoose"));
+const fs_1 = __importDefault(require("fs"));
+// Routes
 const alertRoutes_1 = __importDefault(require("./routes/alertRoutes"));
-///import cameraRoutes  from './routes/cameraRoutes';
-const cameraRoutes_1 = __importDefault(require("./routes/cameraRoutes"));
+const cameraRoutes = require('./routes/cameraRoutes').default;
 const authRoutes_1 = __importDefault(require("./routes/authRoutes"));
 const visionRoutes_1 = __importDefault(require("./routes/visionRoutes"));
+const analyticsRoutes_1 = __importDefault(require("./routes/analyticsRoutes"));
+const ruleRoutes_1 = __importDefault(require("./routes/ruleRoutes"));
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const httpServer = (0, http_1.createServer)(app);
 const PORT = process.env.PORT || 10000;
-// --- 1. SOCKET.IO OPTIMIZATION ---
-const io = new socket_io_1.Server(httpServer, {
-    cors: {
-        origin: process.env.FRONTEND_URL || "*", // Secure this in production
-        methods: ["GET", "POST"],
-        credentials: true
+const MONGO_URI = process.env.MONGODB_URI;
+if (!MONGO_URI) {
+    console.error("❌ MONGODB_URI missing");
+    process.exit(1);
+}
+// ==============================
+// CORS CONFIG
+// ==============================
+const allowedOrigins = ["http://localhost:5173"];
+const corsOptions = {
+    origin: (origin, callback) => {
+        if (!origin ||
+            allowedOrigins.includes(origin) ||
+            origin.includes(".vercel.app")) {
+            callback(null, true);
+        }
+        else {
+            console.log("❌ Blocked by CORS:", origin);
+            callback(new Error("Not allowed by CORS"));
+        }
     },
-    pingTimeout: 60000, // Handle slow mobile/render connections
-    pingInterval: 25000,
-    transports: ['websocket', 'polling'] // Allow fallback but prefer WS
+    credentials: true,
+};
+// ==============================
+// SOCKET.IO
+// ==============================
+const io = new socket_io_1.Server(httpServer, {
+    cors: corsOptions,
 });
 app.set('socketio', io);
-// --- 2. MIDDLEWARE ---
-app.use((0, cors_1.default)({
-    origin: process.env.FRONTEND_URL || "*",
-    credentials: true
-}));
-app.use(express_1.default.json({ limit: '10mb' })); // Support image uploads
+// ==============================
+// MIDDLEWARE
+// ==============================
+app.use((0, cors_1.default)(corsOptions));
+app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true }));
-// Serve static uploads if you're storing images locally
-app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '../uploads')));
-// --- 3. SOCKET EVENTS ---
-io.on('connection', (socket) => {
-    console.log(`📡 New Client: ${socket.id}`);
-    socket.on('disconnect', (reason) => {
-        console.log(`🔌 Client Left: ${socket.id} (${reason})`);
-    });
-});
-// --- 4. ROUTE REGISTRATION ---
+// ==============================
+// STATIC UPLOADS
+// ==============================
+const uploadPath = path_1.default.join(__dirname, '../uploads');
+if (!fs_1.default.existsSync(uploadPath)) {
+    fs_1.default.mkdirSync(uploadPath, { recursive: true });
+}
+app.use('/uploads', express_1.default.static(uploadPath));
+// ==============================
+// ROUTES
+// ==============================
 app.use('/api/alerts', alertRoutes_1.default);
-app.use('/api/cameras', cameraRoutes_1.default);
+app.use('/api/cameras', cameraRoutes);
 app.use('/api/auth', authRoutes_1.default);
 app.use('/api/vision', visionRoutes_1.default);
-// Health Check
+app.use('/api/analytics', analyticsRoutes_1.default);
+app.use('/api/rules', ruleRoutes_1.default); // ✅ FIXED (was missing /)
+// ==============================
+// HEALTH CHECK
+// ==============================
 app.get('/health', (req, res) => {
-    res.status(200).json({ status: "healthy", timestamp: new Date() });
+    res.json({
+        status: "ok",
+        db: mongoose_1.default.connection.readyState === 1,
+    });
 });
-app.get('/', (req, res) => {
-    res.json({ message: "Sentry Hub API Online" });
-});
-// --- 5. GLOBAL 404 HANDLER ---
+// ==============================
+// 404 HANDLER
+// ==============================
 app.use((req, res) => {
-    const logMsg = `❌ 404: ${req.method} ${req.originalUrl}`;
-    console.warn(logMsg);
-    res.status(404).json({
-        error: "Endpoint not found",
-        method: req.method,
-        path: req.originalUrl
-    });
+    res.status(404).json({ error: "Not found" });
 });
-// --- 6. GLOBAL ERROR HANDLER ---
+// ==============================
+// ERROR HANDLER
+// ==============================
 app.use((err, req, res, next) => {
-    console.error("🔥 Server Error:", err.stack);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("❌ Server Error:", err.message);
+    res.status(500).json({ error: err.message });
 });
-// --- 7. GRACEFUL SHUTDOWN (The Telegram 409 Fix) ---
-const shutDown = () => {
-    console.log('🛑 SIGTERM received: Closing HTTP server & Bot...');
-    httpServer.close(() => {
-        console.log('HTTP server closed.');
-        // If you have your bot instance exported from a service:
-        // bot.stopPolling().then(() => process.exit(0)); 
-        process.exit(0);
-    });
-};
-process.on('SIGTERM', shutDown);
-process.on('SIGINT', shutDown);
-httpServer.listen(PORT, () => {
-    console.log(`
-  🚀 SYSTEM READY
-  -------------------------------
-  Port:    ${PORT}
-  Mode:    ${process.env.NODE_ENV || 'development'}
-  Routes:  /api/alerts, /api/cameras, /api/auth, /api/vision
-  -------------------------------
-  `);
+// ==============================
+// START SERVER
+// ==============================
+const start = () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        yield mongoose_1.default.connect(MONGO_URI);
+        console.log("✅ DB connected");
+        httpServer.listen(PORT, () => {
+            console.log(`🚀 Server running on port ${PORT}`);
+        });
+    }
+    catch (err) {
+        console.error("❌ Startup error:", err.message);
+        process.exit(1);
+    }
 });
+start();

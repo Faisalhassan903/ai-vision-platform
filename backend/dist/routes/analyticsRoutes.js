@@ -13,41 +13,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
-const Detection_1 = __importDefault(require("../models/Detection"));
+const Alert_1 = __importDefault(require("../models/Alert"));
 const router = express_1.default.Router();
-// GET /api/analytics/recent - Get recent detections
-router.get('/recent', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const limit = parseInt(req.query.limit) || 10;
-        const detections = yield Detection_1.default.find()
-            .sort({ timestamp: -1 }) // Newest first
-            .limit(limit);
-        res.json({
-            success: true,
-            count: detections.length,
-            detections: detections
-        });
-    }
-    catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-}));
-// GET /api/analytics/stats - Get statistics
+// GET /api/analytics/stats
 router.get('/stats', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        // Total detections
-        const totalDetections = yield Detection_1.default.countDocuments();
-        // Detections today
+        const total = yield Alert_1.default.countDocuments();
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const detectionsToday = yield Detection_1.default.countDocuments({
-            timestamp: { $gte: today }
-        });
-        // Detections by class
-        const byClass = yield Detection_1.default.aggregate([
+        const todayCount = yield Alert_1.default.countDocuments({ timestamp: { $gte: today } });
+        // Top detected object classes across all alerts
+        const byClass = yield Alert_1.default.aggregate([
             { $unwind: '$detections' },
             {
                 $group: {
@@ -56,115 +32,129 @@ router.get('/stats', (req, res) => __awaiter(void 0, void 0, void 0, function* (
                     avgConfidence: { $avg: '$detections.confidence' }
                 }
             },
-            { $sort: { count: -1 } }
+            { $sort: { count: -1 } },
+            { $limit: 10 }
         ]);
-        // Detections by camera
-        const byCamera = yield Detection_1.default.aggregate([
+        // Alerts per camera
+        const byCamera = yield Alert_1.default.aggregate([
             {
                 $group: {
-                    _id: '$cameraId',
+                    _id: '$cameraName',
                     cameraName: { $first: '$cameraName' },
                     count: { $sum: 1 }
                 }
             },
             { $sort: { count: -1 } }
         ]);
+        // Alerts by priority
+        const byPriority = yield Alert_1.default.aggregate([
+            {
+                $group: {
+                    _id: '$priority',
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+        // Alerts by rule
+        const byRule = yield Alert_1.default.aggregate([
+            {
+                $group: {
+                    _id: '$ruleName',
+                    count: { $sum: 1 },
+                    lastTriggered: { $max: '$timestamp' }
+                }
+            },
+            { $sort: { count: -1 } },
+            { $limit: 10 }
+        ]);
         res.json({
             success: true,
             stats: {
-                total: totalDetections,
-                today: detectionsToday,
-                byClass: byClass,
-                byCamera: byCamera
+                total,
+                today: todayCount,
+                byClass,
+                byCamera,
+                byPriority,
+                byRule,
             }
         });
     }
     catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        console.error('Analytics stats error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
     }
 }));
-// GET /api/analytics/search - Search detections
-router.get('/search', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+// GET /api/analytics/recent
+router.get('/recent', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { cameraId, class: objectClass, startDate, endDate, minConfidence } = req.query;
-        // Build query
-        const query = {};
-        if (cameraId) {
-            query.cameraId = cameraId;
-        }
-        if (objectClass) {
-            query['detections.class'] = objectClass;
-        }
-        if (startDate || endDate) {
-            query.timestamp = {};
-            if (startDate) {
-                query.timestamp.$gte = new Date(startDate);
-            }
-            if (endDate) {
-                query.timestamp.$lte = new Date(endDate);
-            }
-        }
-        if (minConfidence) {
-            query['detections.confidence'] = {
-                $gte: parseFloat(minConfidence)
-            };
-        }
-        const detections = yield Detection_1.default.find(query)
+        const limit = parseInt(req.query.limit) || 10;
+        const alerts = yield Alert_1.default.find()
             .sort({ timestamp: -1 })
-            .limit(100);
-        res.json({
-            success: true,
-            count: detections.length,
-            query: query,
-            detections: detections
+            .limit(limit);
+        // Shape response to match what Analytics.tsx expects
+        const detections = alerts.map(a => {
+            var _a;
+            return ({
+                _id: a._id,
+                timestamp: a.timestamp,
+                cameraId: a.cameraId || 'cam_01',
+                cameraName: a.cameraName || 'Sentry_Node_01',
+                detections: a.detections || [],
+                totalObjects: ((_a = a.detections) === null || _a === void 0 ? void 0 : _a.length) || 0,
+                alertSent: true, // all records in Alert collection triggered an alert
+            });
         });
+        res.json({ success: true, count: detections.length, detections });
     }
     catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        console.error('Analytics recent error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
     }
 }));
-// GET /api/analytics/timeline - Detections over time
+// GET /api/analytics/timeline
 router.get('/timeline', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const hours = parseInt(req.query.hours) || 24;
         const startTime = new Date(Date.now() - hours * 60 * 60 * 1000);
-        const timeline = yield Detection_1.default.aggregate([
-            {
-                $match: {
-                    timestamp: { $gte: startTime }
-                }
-            },
+        const timeline = yield Alert_1.default.aggregate([
+            { $match: { timestamp: { $gte: startTime } } },
             {
                 $group: {
                     _id: {
-                        $dateToString: {
-                            format: '%Y-%m-%d %H:00',
-                            date: '$timestamp'
-                        }
+                        $dateToString: { format: '%Y-%m-%d %H:00', date: '$timestamp' }
                     },
                     count: { $sum: 1 },
-                    totalObjects: { $sum: '$totalObjects' }
                 }
             },
             { $sort: { _id: 1 } }
         ]);
-        res.json({
-            success: true,
-            hours: hours,
-            timeline: timeline
-        });
+        res.json({ success: true, hours, timeline });
     }
     catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        res.status(500).json({ success: false, error: error.message });
+    }
+}));
+// GET /api/analytics/search
+router.get('/search', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { ruleName, priority, startDate, endDate } = req.query;
+        const query = {};
+        if (ruleName)
+            query.ruleName = new RegExp(ruleName, 'i');
+        if (priority)
+            query.priority = priority;
+        if (startDate || endDate) {
+            query.timestamp = {};
+            if (startDate)
+                query.timestamp.$gte = new Date(startDate);
+            if (endDate)
+                query.timestamp.$lte = new Date(endDate);
+        }
+        const alerts = yield Alert_1.default.find(query).sort({ timestamp: -1 }).limit(100);
+        res.json({ success: true, count: alerts.length, detections: alerts });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 }));
 exports.default = router;

@@ -15,137 +15,95 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
-const form_data_1 = __importDefault(require("form-data"));
 const fs_1 = __importDefault(require("fs"));
-const axios_1 = __importDefault(require("axios"));
-const Detection_1 = __importDefault(require("../models/Detection"));
 const router = express_1.default.Router();
-// Configure Multer for file uploads
+// Multer — temp storage for any direct uploads
 const storage = multer_1.default.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/');
+        const dir = 'uploads/';
+        if (!fs_1.default.existsSync(dir))
+            fs_1.default.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
     },
     filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, file.fieldname + '-' + uniqueSuffix + path_1.default.extname(file.originalname));
-    }
+        const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        cb(null, file.fieldname + '-' + unique + path_1.default.extname(file.originalname));
+    },
 });
-const upload = (0, multer_1.default)({
-    storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-    fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|gif/;
-        const extname = allowedTypes.test(path_1.default.extname(file.originalname).toLowerCase());
-        const mimetype = allowedTypes.test(file.mimetype);
-        if (mimetype && extname) {
-            return cb(null, true);
-        }
-        else {
-            cb(new Error('Only image files are allowed!'));
-        }
+const upload = (0, multer_1.default)({ storage });
+/**
+ * @route  GET /api/vision/status
+ * @desc   Check if AI service is reachable (used for health dashboard)
+ */
+router.get('/status', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const AI_URL = process.env.AI_SERVICE_URL;
+    if (!AI_URL) {
+        return res.json({
+            mode: 'browser',
+            aiService: false,
+            message: 'No AI_SERVICE_URL set. Using browser-based COCO-SSD detection.',
+        });
     }
-});
-// POST /api/vision/classify - Upload and classify image
-router.post('/classify', upload.single('image'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No image file uploaded' });
-        }
-        console.log('📤 Sending image to AI service...');
-        // Create form data to send to Python AI service
-        const formData = new form_data_1.default();
-        const fileStream = fs_1.default.createReadStream(req.file.path);
-        formData.append('image', fileStream, req.file.originalname);
-        // Send to AI service
-        const aiResponse = yield axios_1.default.post('http://localhost:5001/predict', formData, {
-            headers: Object.assign({}, formData.getHeaders()),
-        });
-        console.log('✅ Received prediction from AI service');
-        // Clean up: Delete uploaded file after processing
-        fs_1.default.unlinkSync(req.file.path);
-        // Return AI predictions to frontend
-        res.json({
-            success: true,
-            filename: req.file.originalname,
-            predictions: aiResponse.data.predictions,
-            topPrediction: aiResponse.data.top_prediction,
-            topConfidence: aiResponse.data.top_confidence
-        });
+        const axios = require('axios');
+        yield axios.get(`${AI_URL}/health`, { timeout: 5000 });
+        res.json({ mode: 'server', aiService: true, url: AI_URL });
     }
-    catch (error) {
-        console.error('❌ Error:', error.message);
-        // Clean up file if it exists
-        if (req.file) {
-            try {
-                fs_1.default.unlinkSync(req.file.path);
-            }
-            catch (e) { }
-        }
-        res.status(500).json({
-            error: 'Failed to process image',
-            details: error.message
+    catch (_a) {
+        res.json({
+            mode: 'browser',
+            aiService: false,
+            message: 'AI service unreachable. Frontend is using browser COCO-SSD.',
         });
     }
 }));
-// POST /api/vision/detect - Object Detection with YOLO
-// POST /api/vision/detect - Object Detection with YOLO
+/**
+ * @route  POST /api/vision/detect
+ * @desc   Server-side detection via Python AI service.
+ *         NOTE: Frontend now uses browser-based COCO-SSD directly.
+ *         This route is kept for future RTSP / server-push use cases.
+ */
 router.post('/detect', upload.single('image'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No image file uploaded' });
-        }
-        console.log('📤 Sending image to AI service for object detection...');
-        // Create form data to send to Python AI service
-        const formData = new form_data_1.default();
-        const fileStream = fs_1.default.createReadStream(req.file.path);
-        formData.append('image', fileStream, req.file.originalname);
-        // Send to AI service DETECT endpoint
-        const aiResponse = yield axios_1.default.post('http://localhost:5001/detect', formData, {
-            headers: Object.assign({}, formData.getHeaders()),
-        });
-        console.log('✅ Received detections from AI service');
-        console.log(`   Found ${aiResponse.data.total_objects} objects`);
-        console.log(`   Has image_with_boxes? ${!!aiResponse.data.image_with_boxes}`);
-        // Clean up: Delete uploaded file after processing
-        fs_1.default.unlinkSync(req.file.path);
-        // Return ALL DATA including image_with_boxes to frontend
-        // Save detection to MongoDB
-        const detectionRecord = new Detection_1.default({
-            timestamp: new Date(),
-            cameraId: 'cam_01', // TODO: Make this dynamic later
-            cameraName: 'Main Camera',
-            detections: aiResponse.data.detections.map((det) => ({
-                class: det.class,
-                confidence: det.confidence,
-                bbox: det.bbox
-            })),
-            totalObjects: aiResponse.data.total_objects,
-            alertSent: false
-        });
-        yield detectionRecord.save();
-        console.log('💾 Saved to MongoDB with ID:', detectionRecord._id);
-        // Return ALL DATA including image_with_boxes to frontend
-        res.json({
-            success: true,
-            filename: req.file.originalname,
-            detections: aiResponse.data.detections,
-            totalObjects: aiResponse.data.total_objects,
-            image_with_boxes: aiResponse.data.image_with_boxes,
-            savedId: detectionRecord._id // Include MongoDB ID in response
-        });
-    }
-    catch (error) {
-        console.error('❌ Error:', error.message);
-        // Clean up file if it exists
+    const AI_URL = process.env.AI_SERVICE_URL;
+    // Clean up uploaded file if we're going to error out
+    const cleanup = () => {
         if (req.file) {
             try {
                 fs_1.default.unlinkSync(req.file.path);
             }
-            catch (e) { }
+            catch (_a) { }
         }
+    };
+    if (!AI_URL) {
+        cleanup();
+        return res.status(503).json({
+            success: false,
+            error: 'Server-side AI not configured.',
+            hint: 'Set AI_SERVICE_URL env var on Render, or use browser-based detection.',
+        });
+    }
+    if (!req.file) {
+        return res.status(400).json({ success: false, error: 'No image uploaded.' });
+    }
+    try {
+        const axios = require('axios');
+        const FormData = require('form-data');
+        const formData = new FormData();
+        formData.append('image', fs_1.default.createReadStream(req.file.path));
+        const aiResponse = yield axios.post(`${AI_URL}/detect`, formData, {
+            headers: formData.getHeaders(),
+            timeout: 20000,
+        });
+        cleanup();
+        res.json(Object.assign({ success: true }, aiResponse.data));
+    }
+    catch (error) {
+        cleanup();
+        console.error('❌ Vision detect error:', error.message);
         res.status(500).json({
-            error: 'Failed to detect objects',
-            details: error.message
+            success: false,
+            error: 'AI service detection failed.',
+            detail: error.message,
         });
     }
 }));
