@@ -1,7 +1,6 @@
-// ===========================================
-// LIVE ROUTES - UPDATED WITH ZONE SUPPORT
-// ===========================================
-// Add this zone-intrusion handler to your existing liveRoutes.ts
+/**
+ * Socket.IO: live video frames, zone intrusion alerts, Telegram test.
+ */
 
 import { Server, Socket } from 'socket.io';
 import FormData from 'form-data';
@@ -9,6 +8,7 @@ import axios from 'axios';
 import Detection from '../models/Detection';
 import { AlertEngine } from '../services/AlertEngine';
 import { NotificationService } from '../services/NotificationService';
+import { TelegramAlertService } from '../services/telegramAlertService';
 
 let processingQueue = 0;
 
@@ -100,13 +100,10 @@ export function setupLiveRoutes(io: Server) {
                 message: alert.message
               });
 
-              // Telegram notification via IntelligentTelegramBot
               const telegramChatId = process.env.TELEGRAM_CHAT_ID;
               if (telegramChatId) {
                 try {
-                  const { IntelligentTelegramBot } = require('../services/IntelligentTelegramBot');
-                  
-                  IntelligentTelegramBot.sendSecurityAlert(telegramChatId, {
+                  TelegramAlertService.sendSecurityAlert(telegramChatId, {
                     priority: alert.priority,
                     ruleName: alert.ruleName,
                     message: alert.message,
@@ -165,9 +162,7 @@ export function setupLiveRoutes(io: Server) {
       const telegramChatId = process.env.TELEGRAM_CHAT_ID;
       if (telegramChatId) {
         try {
-          const { IntelligentTelegramBot } = require('../services/IntelligentTelegramBot');
-          
-          await IntelligentTelegramBot.sendSecurityAlert(telegramChatId, {
+          await TelegramAlertService.sendSecurityAlert(telegramChatId, {
             priority: 'critical',
             ruleName: `🚷 ZONE INTRUSION: ${data.zoneName}`,
             message: `⚠️ Unauthorized person detected in restricted zone "${data.zoneName}"`,
@@ -212,12 +207,10 @@ export function setupLiveRoutes(io: Server) {
       }
 
       try {
-        const { IntelligentTelegramBot } = require('../services/IntelligentTelegramBot');
-        
-        await IntelligentTelegramBot.sendSecurityAlert(telegramChatId, {
+        await TelegramAlertService.sendSecurityAlert(telegramChatId, {
           priority: 'info',
           ruleName: '🧪 Test Alert',
-          message: 'This is a test notification from SENTRY AI monitoring system.',
+          message: 'Test notification from SENTRY HUB.',
           cameraName: 'System Test',
           alertId: `test-${Date.now()}`,
           detections: []

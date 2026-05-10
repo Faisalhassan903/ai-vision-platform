@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { IAlert } from '../models/Alert';
 import User from '../models/User';
-import { IntelligentTelegramBot } from './IntelligentTelegramBot';
+import { TelegramAlertService } from './telegramAlertService';
 
 export class NotificationService {
 
@@ -15,7 +15,7 @@ export class NotificationService {
         return;
       }
 
-      await IntelligentTelegramBot.sendSecurityAlert(user.telegramChatId, {
+      await TelegramAlertService.sendSecurityAlert(user.telegramChatId, {
         priority: alert.priority,
         ruleName: alert.ruleName,
         message: alert.message,
@@ -47,7 +47,7 @@ export class NotificationService {
       console.log(`📨 Sending to ${users.length} user(s)`);
 
       for (const user of users) {
-        await IntelligentTelegramBot.sendSecurityAlert(user.telegramChatId!, {
+        await TelegramAlertService.sendSecurityAlert(user.telegramChatId!, {
           priority: alert.priority,
           ruleName: alert.ruleName,
           message: alert.message,
@@ -86,7 +86,7 @@ export class NotificationService {
             }
           ],
           timestamp: alert.timestamp.toISOString(),
-          footer: { text: 'SENTRY AI' }
+          footer: { text: 'SENTRY HUB' }
         }]
       });
       console.log('✅ Discord notification sent');

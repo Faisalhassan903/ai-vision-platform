@@ -16,3 +16,12 @@ ai-service/.venv/
 
 # Environment
 **/.env
+
+# Builds
+**/dist/
+backend/dist/
+**/build/
+
+# Python
+**/__pycache__/
+*.py[cod]

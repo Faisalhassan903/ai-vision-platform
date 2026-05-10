@@ -9,7 +9,7 @@ import fs from 'fs';
 
 // Routes
 import alertRoutes from './routes/alertRoutes';
-const cameraRoutes = require('./routes/cameraRoutes').default;
+import cameraRoutes from './routes/cameraRoutes';
 import authRoutes from './routes/authRoutes';
 import visionRoutes from './routes/visionRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
@@ -82,7 +82,7 @@ app.use('/api/cameras', cameraRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/vision', visionRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/rules', ruleRoutes); // ✅ FIXED (was missing /)
+app.use('/api/rules', ruleRoutes);
 
 // ==============================
 // HEALTH CHECK

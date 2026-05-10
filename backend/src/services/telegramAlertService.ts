@@ -6,32 +6,26 @@ import User from '../models/User';
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 
-// Create bot WITHOUT polling — we start it manually in initialize()
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: false });
 
-export class IntelligentTelegramBot {
-  
-  private static initialized = false; // prevent double init
-  private static userSessions = new Map<number, any>();
-  
+export class TelegramAlertService {
+
+  private static initialized = false;
+
   static async initialize() {
-    // Prevent running twice
     if (this.initialized) {
-      console.log('⚠️ Bot already initialized, skipping');
+      console.log('⚠️ Telegram notifier already initialized, skipping');
       return;
     }
 
-    console.log('🤖 Intelligent Telegram Bot starting...');
+    console.log('📱 Starting Telegram notifier…');
 
     try {
-      // Delete webhook first — clears any conflicts
       await bot.deleteWebHook();
       console.log('✅ Webhook cleared');
 
-      // Stop any existing polling
       await bot.stopPolling();
 
-      // Wait a moment then start fresh
       await new Promise(resolve => setTimeout(resolve, 1000));
       await bot.startPolling();
       console.log('✅ Polling started');
@@ -40,7 +34,6 @@ export class IntelligentTelegramBot {
       console.log('⚠️ Polling reset error (non-fatal):', err);
     }
 
-    // Register handlers
     bot.onText(/\/start (.+)/, (msg, match) => this.handleStartWithToken(msg, match));
     bot.onText(/\/start$/, (msg) => this.handleStart(msg));
     bot.onText(/\/status/, (msg) => this.handleStatus(msg));
@@ -54,7 +47,6 @@ export class IntelligentTelegramBot {
     bot.onText(/\/help/, (msg) => this.handleHelp(msg));
     bot.on('callback_query', (query) => this.handleCallback(query));
 
-    // Suppress polling error noise
     bot.on('polling_error', (error: any) => {
       if (error?.code === 'ETELEGRAM' && error?.message?.includes('409')) {
         console.log('⚠️ Telegram 409 — another instance still shutting down, retrying...');
@@ -64,12 +56,9 @@ export class IntelligentTelegramBot {
     });
 
     this.initialized = true;
-    console.log('✅ Intelligent Bot ready!');
+    console.log('✅ Telegram notifier ready');
   }
 
-  // ... rest of your file stays exactly the same
-
-  // NEW: Link Telegram to user account via token
   private static async handleStartWithToken(
     msg: TelegramBot.Message,
     match: RegExpExecArray | null
@@ -105,11 +94,10 @@ Use /help to see available commands.
     }
   }
 
-  // Generic /start
   private static async handleStart(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
     await bot.sendMessage(chatId, `
-🛡️ *Welcome to SENTRY\\_AI Security Bot*
+🛡️ *Welcome to SENTRY HUB Security*
 
 To receive your personal alerts:
 1. Log into your dashboard
@@ -119,8 +107,7 @@ To receive your personal alerts:
 Already linked? Use /help to see commands.
     `.trim(), { parse_mode: 'Markdown' });
   }
-  
-  // Send alert to a specific user's chatId
+
   static async sendSecurityAlert(
     chatId: string,
     alertData: {
@@ -134,13 +121,13 @@ Already linked? Use /help to see commands.
     }
   ) {
     try {
-      const emoji = alertData.priority === 'critical' ? '🔴' : 
+      const emoji = alertData.priority === 'critical' ? '🔴' :
                     alertData.priority === 'warning' ? '⚠️' : 'ℹ️';
-      
+
       const detectedObjects = alertData.detections
         .map(d => `${d.class} (${(d.confidence * 100).toFixed(0)}%)`)
         .join(', ');
-      
+
       const caption = `
 ${emoji} *SECURITY ALERT*
 
@@ -152,7 +139,7 @@ ${emoji} *SECURITY ALERT*
 
 ${alertData.message}
       `.trim();
-      
+
       const keyboard = {
         inline_keyboard: [
           [
@@ -164,11 +151,11 @@ ${alertData.message}
           ]
         ]
       };
-      
+
       if (alertData.snapshot) {
         const imageData = alertData.snapshot.replace(/^data:image\/\w+;base64,/, '');
         const buffer = Buffer.from(imageData, 'base64');
-        await bot.sendPhoto(chatId, buffer, { 
+        await bot.sendPhoto(chatId, buffer, {
           caption,
           parse_mode: 'Markdown',
           reply_markup: keyboard
@@ -179,20 +166,19 @@ ${alertData.message}
           reply_markup: keyboard
         });
       }
-      
+
       console.log(`✅ Alert sent to chatId: ${chatId}`);
-      
+
     } catch (error) {
       console.error(`❌ Failed to send alert to ${chatId}:`, error);
     }
   }
 
-  // Broadcast to ALL connected users
   static async broadcastToAllUsers(alertData: any) {
     try {
-      const users = await User.find({ 
-        telegramConnected: true, 
-        telegramChatId: { $ne: null } 
+      const users = await User.find({
+        telegramConnected: true,
+        telegramChatId: { $ne: null }
       });
 
       if (users.length === 0) {
@@ -204,7 +190,7 @@ ${alertData.message}
 
       for (const user of users) {
         if (user.telegramChatId) {
-          await this.sendSecurityAlert(user.telegramChatId, alertData);
+          await TelegramAlertService.sendSecurityAlert(user.telegramChatId, alertData);
         }
       }
 
@@ -213,7 +199,6 @@ ${alertData.message}
     }
   }
 
-  // /status
   private static async handleStatus(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
     try {
@@ -239,7 +224,6 @@ _Last updated: ${new Date().toLocaleTimeString()}_
     }
   }
 
-  // /cameras
   private static async handleCameras(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
     try {
@@ -260,7 +244,6 @@ _Last updated: ${new Date().toLocaleTimeString()}_
     }
   }
 
-  // /alerts
   private static async handleAlerts(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
     try {
@@ -290,7 +273,6 @@ _Last updated: ${new Date().toLocaleTimeString()}_
     }
   }
 
-  // /rules
   private static async handleRules(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
     try {
@@ -313,7 +295,6 @@ _Last updated: ${new Date().toLocaleTimeString()}_
     }
   }
 
-  // /stats
   private static async handleStats(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
     try {
@@ -339,11 +320,10 @@ _Generated at ${new Date().toLocaleTimeString()}_
     }
   }
 
-  // /help
   private static async handleHelp(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
     const helpMsg = `
-🤖 *SENTRY\\_AI Bot Commands*
+🛡️ *SENTRY HUB — Telegram commands*
 
 *📊 Monitoring:*
 /status - System status
@@ -362,10 +342,9 @@ _Generated at ${new Date().toLocaleTimeString()}_
     await bot.sendMessage(chatId, helpMsg, { parse_mode: 'Markdown' });
   }
 
-  // /test
   private static async handleTest(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
-    await this.sendSecurityAlert(chatId.toString(), {
+    await TelegramAlertService.sendSecurityAlert(chatId.toString(), {
       priority: 'warning',
       ruleName: 'System Test',
       message: '✅ Test alert — notifications are working!',
@@ -375,21 +354,18 @@ _Generated at ${new Date().toLocaleTimeString()}_
     });
   }
 
-  // /arm
   private static async handleArm(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
     const result = await AlertRule.updateMany({}, { enabled: true });
     await bot.sendMessage(chatId, `✅ Armed ${result.modifiedCount} security rules. 🛡️`);
   }
 
-  // /disarm
   private static async handleDisarm(msg: TelegramBot.Message) {
     const chatId = msg.chat.id;
     const result = await AlertRule.updateMany({}, { enabled: false });
     await bot.sendMessage(chatId, `⏸️ Paused ${result.modifiedCount} security rules.`);
   }
 
-  // Callback buttons
   private static async handleCallback(query: TelegramBot.CallbackQuery) {
     const chatId = query.message?.chat.id;
     if (!chatId) return;
@@ -403,9 +379,9 @@ _Generated at ${new Date().toLocaleTimeString()}_
         await bot.sendMessage(chatId, '✅ Alert acknowledged and logged.');
       } else if (data.startsWith('false_')) {
         const alertId = data.replace('false_', '');
-        await Alert.findByIdAndUpdate(alertId, { 
-          acknowledged: true, 
-          notes: 'Marked as false alarm' 
+        await Alert.findByIdAndUpdate(alertId, {
+          acknowledged: true,
+          notes: 'Marked as false alarm'
         });
         await bot.answerCallbackQuery(query.id, { text: '✅ Marked as false alarm' });
         await bot.sendMessage(chatId, '✅ Marked as false alarm.');

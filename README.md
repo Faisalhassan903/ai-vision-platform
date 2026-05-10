@@ -1,62 +1,71 @@
-AI Vision Platform 👁️🚀
-A comprehensive, real-time computer vision system that processes multiple camera streams, performs object detection, and visualizes analytics through a modern web dashboard.
+# AI Vision Platform
 
-🏗️ System Architecture
-The platform is divided into three core layers as shown in the system design:
+Real-time multi-camera computer vision stack: ingestion (Python/YOLO), REST + WebSockets (Node.js/MongoDB), and a React dashboard.
 
-Data Ingestion (Python AI Service): Uses TensorFlow/YOLO to process RTSP/HTTP streams from IP cameras. It handles object detection, tracking, and metadata extraction, pushing data to Kafka/Redis Streams.
+## Architecture
 
-Core Services (Node.js & MongoDB): The Backend API manages data persistence, provides REST endpoints (/detections, /cameras), and pushes real-time alerts via Socket.io.
+| Layer | Stack | Role |
+|--------|-------|------|
+| **ai-service** | Python, YOLO/TensorFlow | RTSP/HTTP streams, detection, inference |
+| **backend** | Node.js, Express, MongoDB, Socket.io | API, persistence, live alerts |
+| **frontend** | React, Tailwind | Multi-camera UI, analytics |
 
-Frontend UI (React): A responsive web dashboard featuring a multi-camera grid, real-time video feeds, and a comprehensive analytics reporting suite.
+## Repo layout
 
-🛠️ Project Structure
-Plaintext
-
+```
 ai-vision-platform/
-├── ai-service/       # Python, YOLO, TensorFlow, Kafka/Redis
-├── backend/          # Node.js, Express, MongoDB, Socket.io
-├── frontend/         # React.js, Tailwind CSS, WebSockets
-└── .gitignore        # Optimized for monorepo
-🚀 Installation & Setup
-1. Python AI Service
-Prerequisites: Python 3.9+, Virtual Environment.
+├── ai-service/    # Inference service
+├── backend/       # REST + Socket.io API
+├── frontend/      # Web UI
+├── docker-compose.yml
+└── README.md
+```
 
-Bash
+## Setup
 
+### 1. AI service
+
+Requires Python 3.9+.
+
+```bash
 cd ai-service
 python -m venv .venv
-# Windows: .venv\Scripts\activate | Mac/Linux: source .venv/bin/activate
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python main.py
-2. Node.js Backend
-Prerequisites: Node.js 16+, MongoDB instance.
+python app.py
+```
 
-Bash
+### 2. Backend
 
+Requires Node.js 18+ (recommended) and MongoDB.
+
+```bash
 cd backend
 npm install
-# Configure your .env with MONGODB_URI
+npm run build
+# Configure .env (see /.env.example) — minimum: MONGODB_URI
 npm start
-3. React Frontend
-Bash
+```
 
+For development:
+
+```bash
+npm run dev
+```
+
+### 3. Frontend
+
+```bash
 cd frontend
 npm install
 npm run dev
-✨ Core Features
-Multi-Stream Processing: Handle multiple RTSP IP camera feeds simultaneously.
+```
 
-Real-time Object Detection: Powered by YOLO/TensorFlow for high-accuracy tracking.
+## Environment
 
-Live WebSockets: Instant alerts and video feed updates using Socket.io.
+Create `.env` files as needed (`backend/`, `ai-service/`). Root `.env.example` lists common Telegram/Discord-related variables. Do not commit secrets.
 
-Data Analytics: Historical reporting of detections stored in MongoDB.
+## License
 
-C
-
-🔒 Environment Variables
-Ensure you create a .env file in both the /backend and /ai-service directories. Refer to the .env.example files (if provided) for the required keys like Database URLs and API Secret Keys.
-
-📜 License
-This project is delivered under the MIT License.
+MIT.

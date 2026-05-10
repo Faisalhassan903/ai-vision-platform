@@ -1,8 +1,6 @@
-// ===========================================
-// CAMERA ROUTES
-// ===========================================
-// REST API for camera management
-// Endpoints: CRUD + stream control + testing
+/**
+ * Camera CRUD, stream control, and connection tests (`/api/cameras`).
+ */
 
 import express, { Request, Response } from 'express';
 import Camera from '../models/Camera';
