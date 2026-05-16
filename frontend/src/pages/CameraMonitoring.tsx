@@ -4,10 +4,16 @@ import { CameraCanvas, ZoneList, AlertPanel } from '../components/camera';
 import { useCameraStore } from '../store';
 import type { Detection } from '../store';
 import { Card, Button, StatCard } from '../components/ui';
-// 1. IMPORT THE SOCKET URL
-import { SOCKET_URL } from '../config'; 
+import { SOCKET_URL } from '../config';
+import { useCameras } from '../hooks/useCameras';
+import RtspStreamPlayer from '../components/camera/RtspStreamPlayer';
+import type { Camera } from '../store';
 
 const CameraMonitoring: React.FC = () => {
+  const { cameras } = useCameras();
+  const [sourceMode, setSourceMode] = useState<'webcam' | 'rtsp'>('webcam');
+  const [selectedRtsp, setSelectedRtsp] = useState<Camera | null>(null);
+  const rtspCameras = cameras.filter((c) => c.type === 'rtsp');
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -161,20 +167,50 @@ const CameraMonitoring: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex gap-3">
-            {!isStreaming ? (
-              <Button onClick={startCamera} variant="primary">
-                ▶️ Start Camera
-              </Button>
-            ) : (
-              <Button onClick={stopCamera} variant="danger">
-                ⏹️ Stop Camera
-              </Button>
+          <div className="flex flex-wrap gap-3 items-center">
+            <select
+              value={sourceMode}
+              onChange={(e) => {
+                const mode = e.target.value as 'webcam' | 'rtsp';
+                setSourceMode(mode);
+                if (mode === 'webcam') {
+                  setSelectedRtsp(null);
+                  stopCamera();
+                }
+              }}
+              className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="webcam">Laptop webcam</option>
+              <option value="rtsp">RTSP IP camera</option>
+            </select>
+
+            {sourceMode === 'rtsp' && (
+              <select
+                value={selectedRtsp?.id ?? ''}
+                onChange={(e) => {
+                  const cam = rtspCameras.find((c) => c.id === e.target.value) ?? null;
+                  setSelectedRtsp(cam);
+                  stopCamera();
+                }}
+                className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm max-w-xs"
+              >
+                <option value="">Select camera…</option>
+                {rtspCameras.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             )}
+
+            {sourceMode === 'webcam' &&
+              (!isStreaming ? (
+                <Button onClick={startCamera} variant="primary">▶️ Start Camera</Button>
+              ) : (
+                <Button onClick={stopCamera} variant="danger">⏹️ Stop Camera</Button>
+              ))}
           </div>
         </div>
 
-        {isStreaming && (
+        {(isStreaming || (sourceMode === 'rtsp' && selectedRtsp)) && (
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
             <StatCard icon="📊" value={fps} label="FPS" />
             <StatCard icon="🎯" value={detections.length} label="Detections" />
@@ -196,23 +232,38 @@ const CameraMonitoring: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <Card className="bg-black p-0 overflow-hidden">
-              <video
-                ref={videoRef}
-                className="hidden"
-                playsInline
-                muted
-                autoPlay
-              />
-              
-              <CameraCanvas
-                cameraId={cameraId}
-                videoRef={videoRef}
-                isStreaming={isStreaming}
-                detections={detections}
-                width={640}
-                height={480}
-              />
+            <Card className="bg-black p-0 overflow-hidden min-h-[360px]">
+              {sourceMode === 'rtsp' && selectedRtsp ? (
+                <RtspStreamPlayer
+                  camera={selectedRtsp}
+                  onDetections={(data) => {
+                    const normalized: Detection[] = (data.detections || []).map((det: any) => ({
+                      label: det.class,
+                      confidence: det.confidence,
+                      x: (det.bbox?.x1 ?? 0) / 640,
+                      y: (det.bbox?.y1 ?? 0) / 640,
+                      width: ((det.bbox?.x2 ?? 0) - (det.bbox?.x1 ?? 0)) / 640,
+                      height: ((det.bbox?.y2 ?? 0) - (det.bbox?.y1 ?? 0)) / 640,
+                      inZone: false,
+                      zoneIds: [],
+                    }));
+                    setDetections(selectedRtsp.id, normalized);
+                    setProcessedFrames((p) => p + 1);
+                  }}
+                />
+              ) : (
+                <>
+                  <video ref={videoRef} className="hidden" playsInline muted autoPlay />
+                  <CameraCanvas
+                    cameraId={cameraId}
+                    videoRef={videoRef}
+                    isStreaming={isStreaming}
+                    detections={detections}
+                    width={640}
+                    height={480}
+                  />
+                </>
+              )}
             </Card>
 
             <div className="mt-4 flex flex-wrap gap-3">

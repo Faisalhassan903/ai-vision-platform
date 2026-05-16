@@ -41,14 +41,15 @@ export function setupLiveRoutes(io: Server) {
           contentType: 'image/jpeg'
         });
 
+        const AI_URL = process.env.AI_SERVICE_URL || 'http://localhost:5001';
         const aiResponse = await axios.post(
-          'http://localhost:5001/detect-live',
+          `${AI_URL}/detect`,
           formData,
           {
             headers: {
               ...formData.getHeaders(),
             },
-            timeout: 3000
+            timeout: 8000
           }
         );
 

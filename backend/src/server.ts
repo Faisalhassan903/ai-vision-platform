@@ -14,6 +14,8 @@ import authRoutes from './routes/authRoutes';
 import visionRoutes from './routes/visionRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
 import ruleRoutes from './routes/ruleRoutes';
+import { setupLiveRoutes } from './routes/liveRoutes';
+import { rtspProxy } from './services/rtspProxy';
 
 dotenv.config();
 
@@ -57,6 +59,10 @@ const io = new Server(httpServer, {
 });
 
 app.set('socketio', io);
+
+// Socket.io: live frames, alerts, RTSP proxy
+setupLiveRoutes(io);
+rtspProxy.initialize(io);
 
 // ==============================
 // MIDDLEWARE

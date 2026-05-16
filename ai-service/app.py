@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
-import os  # <--- ADD THIS LINE
+import os
+import time
 import base64
 import cv2
 import numpy as np
@@ -21,6 +22,62 @@ socketio = SocketIO(
 )
 yolo_model = YOLO('yolov8n.pt')
 
+
+def run_detection(img):
+    """Run YOLO on a BGR image; return detection list."""
+    results = yolo_model(img, verbose=False)
+    detections = []
+    for result in results:
+        for box in result.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            conf = float(box.conf[0])
+            cls_id = int(box.cls[0])
+            label = yolo_model.names[cls_id]
+            detections.append({
+                'class': label,
+                'confidence': conf,
+                'bbox': {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2},
+            })
+    return detections
+
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok', 'model': 'yolov8n'})
+
+
+@app.route('/detect', methods=['POST'])
+def detect():
+    """REST detection for backend RTSP / upload pipelines."""
+    start = time.time()
+    try:
+        img = None
+        if 'image' in request.files:
+            file_bytes = request.files['image'].read()
+            nparr = np.frombuffer(file_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        elif request.is_json and request.json.get('frame'):
+            frame_data = request.json['frame']
+            if ',' in frame_data:
+                frame_data = frame_data.split(',')[1]
+            img_bytes = base64.b64decode(frame_data)
+            nparr = np.frombuffer(img_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if img is None:
+            return jsonify({'success': False, 'error': 'No image provided'}), 400
+
+        detections = run_detection(img)
+        return jsonify({
+            'success': True,
+            'detections': detections,
+            'total_objects': len(detections),
+            'processing_time': round(time.time() - start, 3),
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @socketio.on('video-frame')
 def handle_video_frame(data):
     try:
@@ -30,26 +87,9 @@ def handle_video_frame(data):
         nparr = np.frombuffer(img_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # 2. Run YOLO Detection
-        results = yolo_model(img, verbose=False)
-        detections = []
-        
-        for result in results:
-            for box in result.boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                conf = float(box.conf[0])
-                cls_id = int(box.cls[0])
-                label = yolo_model.names[cls_id]
+        detections = run_detection(img)
 
-                detections.append({
-                    'class': label,
-                    'confidence': conf, # Frontend expects 'confidence' (decimal)
-                    'bbox': {
-                        'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2
-                    }
-                })
-
-        # 3. Emit results BACK to the frontend via socket
+        # Emit results back to the frontend via socket
         emit('detections', {'detections': detections})
         
     except Exception as e:
